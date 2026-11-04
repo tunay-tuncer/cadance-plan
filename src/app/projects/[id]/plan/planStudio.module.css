@@ -1,0 +1,306 @@
+.studioContainer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  background: var(--bgDark);
+  overflow: hidden;
+}
+
+/* Main Viewport Area */
+.viewportArea {
+  flex: 1;
+  position: relative;
+  height: 100%;
+  width: 100%;
+  background: #0d0d12;
+  overflow: hidden;
+}
+
+/* Top Floating Header Bar */
+.topOverlayBar {
+  position: absolute;
+  top: calc(0.6rem + env(safe-area-inset-top, 0px));
+  left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.topLeftGroup, .topRightGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.8rem;
+  background: rgba(18, 18, 22, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusSm);
+  color: var(--textMain);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.backBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.projectBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.8rem;
+  background: rgba(18, 18, 22, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusSm);
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.roomBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.75rem;
+  background: rgba(41, 245, 126, 0.12);
+  border: 1px solid rgba(41, 245, 126, 0.3);
+  border-radius: var(--radiusSm);
+  font-size: 0.76rem;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Workspace Mode Switcher (2D Plan vs 3D BIM) */
+.modeSwitcher {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(14, 16, 22, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.modeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.75rem;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modeBtn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.modeBtnActive {
+  background: rgba(41, 245, 126, 0.22) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  box-shadow: 0 0 12px rgba(41, 245, 126, 0.35);
+}
+
+/* Action Buttons */
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  background: rgba(18, 18, 22, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusSm);
+  color: var(--textMain);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.saveBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 1rem;
+  background: var(--accent);
+  color: #0d0d12;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: var(--radiusSm);
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.saveBtn:hover {
+  opacity: 0.92;
+}
+
+.saveBtnSuccess {
+  background: #10b981;
+  color: #fff;
+}
+
+/* Modal for Adding Door / Window */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modalCard {
+  width: 100%;
+  max-width: 440px;
+  background: #141419;
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusCard);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modalTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--textWhite);
+}
+
+.closeBtn {
+  color: var(--textMuted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.formLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--textNav);
+}
+
+.textInput, .selectInput {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--textWhite);
+  font-size: 0.88rem;
+  outline: none;
+}
+
+.selectInput option {
+  background: #18181f;
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  .topOverlayBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+    left: calc(0.5rem + env(safe-area-inset-left, 0px));
+    right: calc(0.5rem + env(safe-area-inset-right, 0px));
+  }
+  
+  .topLeftGroup, .topRightGroup {
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.35rem;
+  }
+
+  .projectBadge {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .actionBtn span,
+  .modeBtn span,
+  .backBtn span {
+    display: none;
+  }
+
+  .actionBtn {
+    padding: 0.42rem 0.6rem;
+  }
+
+  .modeBtn {
+    padding: 0.38rem 0.55rem;
+  }
+
+  .saveBtn {
+    padding: 0.42rem 0.75rem;
+  }
+
+  .roomBadge {
+    padding: 0.35rem 0.55rem;
+    font-size: 0.72rem;
+  }
+}

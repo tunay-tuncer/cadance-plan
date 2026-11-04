@@ -1,0 +1,337 @@
+.pageContainer {
+    min-height: calc(100vh - 4rem);
+    width: 100%;
+    padding: 6rem 2.5rem 3rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.headerSection {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--borderSubtle);
+}
+
+.titleArea {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.pageTitle {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--textWhite);
+}
+
+.pageSubtitle {
+    font-size: 0.875rem;
+    color: var(--textGrey);
+}
+
+.statsRow {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.statBadge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.85rem;
+    background: var(--bgCard);
+    border: 1px solid var(--borderCard);
+    border-radius: var(--radiusSm);
+    font-size: 0.8rem;
+    color: var(--textNav);
+}
+
+.statValue {
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.projectsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    gap: 1.5rem;
+    width: 100%;
+}
+
+.projectCard {
+    background: var(--bgCard);
+    backdrop-filter: var(--blurCard);
+    -webkit-backdrop-filter: var(--blurCard);
+    border: 1px solid var(--borderCard);
+    border-radius: var(--radiusCard);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 1.25rem;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    text-decoration: none;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.projectCard:hover {
+    transform: translateY(-3px);
+    border-color: var(--borderHover);
+    box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.cardTop {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.projectName {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--textWhite);
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+}
+
+.typeBadge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.2rem 0.55rem;
+    border-radius: 4px;
+    background: rgba(41, 114, 245, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(41, 114, 245, 0.3);
+    white-space: nowrap;
+}
+
+.detailsList {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    font-size: 0.8125rem;
+    color: var(--textGrey);
+}
+
+.detailRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.detailLabel {
+    color: var(--textMuted);
+}
+
+.detailValue {
+    color: var(--textMain);
+    font-weight: 500;
+}
+
+.statusIndicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.statusDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+.statusCompleted {
+    color: #34d399;
+}
+
+.statusCompleted .statusDot {
+    background-color: #34d399;
+    box-shadow: 0 0 8px #34d399;
+}
+
+.statusActive {
+    color: #60a5fa;
+}
+
+.statusActive .statusDot {
+    background-color: #60a5fa;
+    box-shadow: 0 0 8px #60a5fa;
+}
+
+.cardFooter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 0.75rem;
+}
+
+.actionButton {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    background: rgba(41, 114, 245, 0.15);
+    border: 1px solid rgba(41, 114, 245, 0.3);
+    color: #93c5fd;
+    font-size: 0.775rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.actionButton:hover {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+    box-shadow: 0 0 16px rgba(41, 114, 245, 0.4);
+}
+
+.stateCard {
+    max-width: 520px;
+    margin: 3rem auto;
+    padding: 2.5rem 2rem;
+    background: var(--bgCard);
+    backdrop-filter: var(--blurCard);
+    -webkit-backdrop-filter: var(--blurCard);
+    border: 1px solid var(--borderCard);
+    border-radius: var(--radiusCard);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+.stateIcon {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    background: rgba(41, 114, 245, 0.12);
+    border: 1px solid rgba(41, 114, 245, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-size: 1.75rem;
+}
+
+.stateTitle {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--textWhite);
+}
+
+.stateDesc {
+    font-size: 0.875rem;
+    color: var(--textGrey);
+    line-height: 1.6;
+}
+
+.loginPromptBtn {
+    background: var(--accent);
+    color: #ffffff;
+    padding: 0.75rem 1.75rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.loginPromptBtn:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 0 20px rgba(41, 114, 245, 0.5);
+}
+
+.skeletonGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    gap: 1.5rem;
+    width: 100%;
+}
+
+.skeletonCard {
+    height: 200px;
+    border-radius: var(--radiusCard);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--borderSubtle);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+
+    50% {
+        opacity: 0.2;
+    }
+}
+
+@media (max-width: 768px) {
+    .pageContainer {
+        padding: 5rem 1rem 2rem;
+        gap: 1.5rem;
+    }
+
+    .headerSection {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+    }
+
+    .pageTitle {
+        font-size: 1.45rem;
+    }
+
+    .statsRow {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .statBadge {
+        flex: 1;
+        min-width: 120px;
+        justify-content: center;
+    }
+
+    .projectsGrid,
+    .skeletonGrid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .projectCard {
+        padding: 1.25rem;
+    }
+}

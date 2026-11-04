@@ -1,0 +1,350 @@
+.navBar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 4rem;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-inline: 2.5rem;
+    background: var(--bgNavbar);
+    backdrop-filter: var(--blurNav);
+    -webkit-backdrop-filter: var(--blurNav);
+    border-bottom: 1px solid var(--borderSubtle);
+    z-index: 50;
+    box-sizing: border-box;
+}
+
+.brandArea {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.brandLink {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    text-decoration: none;
+}
+
+.brandLogo {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), #1e5dd8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 800;
+    font-size: 0.85rem;
+    box-shadow: 0 0 14px rgba(41, 114, 245, 0.5);
+}
+
+.brandTitle {
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--textWhite);
+}
+
+.navContainer {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+}
+
+.navContainer a {
+    color: var(--textNav);
+    font-size: 0.775rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.navContainer a:hover {
+    color: var(--textWhite);
+}
+
+.activeNavLink {
+    color: var(--accent) !important;
+    font-weight: 600 !important;
+}
+
+.userContainer {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.userDisplay {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+.userImage {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.userAvatarFallback {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--textMain);
+    font-size: 0.8rem;
+}
+
+.userButton {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 0.4rem 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    color: #f4f4f5;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.userButton:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.chevron {
+    color: #71717a;
+    font-size: 0.75rem;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chevron.expanded {
+    transform: rotate(180deg);
+}
+
+.dropdownMenu {
+    position: absolute;
+    top: calc(100% + 0.6rem);
+    right: 0;
+    background: rgba(18, 18, 20, 0.96);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 0.5rem;
+    box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+    z-index: 100;
+    min-width: 200px;
+    animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dropdownUserInfo {
+    padding: 0.4rem 0.6rem 0.6rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 0.4rem;
+}
+
+.dropdownName {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--textWhite);
+}
+
+.dropdownEmail {
+    font-size: 0.72rem;
+    color: var(--textMuted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dropdownItem {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.65rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--textNav);
+    font-size: 0.775rem;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+.dropdownItem:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: #f4f4f5;
+}
+
+.dropdownItemDanger {
+    color: #f87171 !important;
+}
+
+.dropdownItemDanger:hover {
+    background-color: rgba(239, 68, 68, 0.12) !important;
+    color: #ef4444 !important;
+}
+
+.signInButton {
+    background: var(--accent);
+    color: #ffffff;
+    border: none;
+    border-radius: 7px;
+    padding: 0.45rem 1rem;
+    font-size: 0.775rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    transition: opacity 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+}
+
+.signInButton:hover {
+    opacity: 0.95;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(41, 114, 245, 0.4);
+}
+
+.mobileHamburgerBtn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--textWhite);
+    cursor: pointer;
+    padding: 0.4rem;
+    align-items: center;
+    justify-content: center;
+}
+
+.mobileMenuDrawer {
+    position: fixed;
+    top: 4rem;
+    left: 0;
+    width: 100%;
+    background: rgba(13, 13, 15, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--borderSubtle);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    z-index: 49;
+    animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.mobileNavLink {
+    color: var(--textNav);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 0;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.mobileNavLink:hover,
+.activeMobileLink {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .navBar {
+        padding-inline: 1.25rem;
+    }
+
+    .navContainer {
+        display: none;
+    }
+
+    .mobileHamburgerBtn {
+        display: flex;
+    }
+}
+
+@media (max-width: 540px) {
+    .navBar {
+        padding-inline: 1rem;
+    }
+
+    .brandTitle {
+        font-size: 0.8125rem;
+    }
+
+    .userButton {
+        padding: 0.35rem 0.6rem;
+        gap: 0.4rem;
+    }
+
+    .userButton span {
+        max-width: 90px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 400px) {
+    .brandTitle {
+        display: none;
+    }
+
+    .navBar {
+        padding-inline: 0.75rem;
+    }
+
+    .userButton span {
+        max-width: 65px;
+    }
+}

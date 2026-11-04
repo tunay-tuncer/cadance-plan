@@ -1,0 +1,727 @@
+.container {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 5.5rem 1.25rem 3rem;
+  min-height: 100vh;
+}
+
+/* Breadcrumb Navigation */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--textMuted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.backLink:hover {
+  color: var(--accent);
+}
+
+.crumbCurrent {
+  color: var(--textMain);
+  font-weight: 500;
+}
+
+/* Project Header & Actions */
+.projectHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.headerMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 750px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.projectTitle {
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--textWhite);
+}
+
+.typeBadge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  background: rgba(41, 245, 126, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(41, 245, 126, 0.25);
+}
+
+.headerSubtitle {
+  font-size: 0.88rem;
+  color: var(--textMuted);
+  line-height: 1.5;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.addRoomBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--accent);
+  color: #0d0d12;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border-radius: var(--radiusButton);
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(41, 245, 126, 0.25);
+}
+
+.addRoomBtn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+/* Metrics Summary Bar */
+.metricsBar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.metricCard {
+  background: var(--bgCard);
+  backdrop-filter: var(--blurCard);
+  -webkit-backdrop-filter: var(--blurCard);
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusCard);
+  padding: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.metricIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  background: rgba(41, 245, 126, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(41, 245, 126, 0.25);
+  flex-shrink: 0;
+}
+
+.metricInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.metricLabel {
+  font-size: 0.75rem;
+  color: var(--textMuted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.metricValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--textWhite);
+}
+
+.metricSub {
+  font-size: 0.72rem;
+  color: var(--textNav);
+}
+
+/* Room Cards Grid */
+.roomsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.roomCard {
+  background: var(--bgCard);
+  backdrop-filter: var(--blurCard);
+  -webkit-backdrop-filter: var(--blurCard);
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusCard);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.roomCard:hover {
+  border-color: var(--borderHover);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.roomTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--textWhite);
+}
+
+.categoryTag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a1a1aa;
+  text-transform: capitalize;
+}
+
+.areaHighlightBox {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  background: rgba(41, 245, 126, 0.06);
+  border: 1px solid rgba(41, 245, 126, 0.18);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.areaLabel {
+  font-size: 0.8rem;
+  color: var(--textMuted);
+  font-weight: 500;
+}
+
+.areaValue {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.areaUnit {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--textMuted);
+}
+
+.elementsList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  text-align: center;
+}
+
+.elementItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.elementCount {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--textWhite);
+}
+
+.elementName {
+  font-size: 0.68rem;
+  color: var(--textMuted);
+  text-transform: uppercase;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: auto;
+}
+
+.openStudioBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  background: rgba(41, 245, 126, 0.15);
+  border: 1px solid rgba(41, 245, 126, 0.35);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.openStudioBtn:hover {
+  background: var(--accent);
+  color: #0d0d12;
+}
+
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+}
+
+/* Empty State */
+.emptyState {
+  background: var(--bgCard);
+  backdrop-filter: var(--blurCard);
+  border: 1px dashed var(--borderCard);
+  border-radius: var(--radiusCard);
+  padding: 4rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+  max-width: 580px;
+  margin: 2rem auto;
+}
+
+.emptyIcon {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(41, 245, 126, 0.1);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+}
+
+.emptyTitle {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--textWhite);
+}
+
+.emptyDesc {
+  font-size: 0.88rem;
+  color: var(--textMuted);
+  line-height: 1.6;
+}
+
+/* Quick New Room Modal */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modalCard {
+  width: 100%;
+  max-width: 480px;
+  background: #141419;
+  border: 1px solid var(--borderCard);
+  border-radius: var(--radiusCard);
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modalTitle {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--textWhite);
+}
+
+.closeBtn {
+  color: var(--textMuted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.closeBtn:hover {
+  color: var(--textWhite);
+}
+
+.presetChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.presetChip {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--textMain);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.presetChip:hover {
+  background: rgba(41, 245, 126, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.formLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--textNav);
+}
+
+.textInput, .selectInput {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--textWhite);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.selectInput option {
+  background: #18181f;
+  color: #fff;
+}
+
+.textInput:focus, .selectInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(41, 245, 126, 0.25);
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 5rem 1rem 2rem;
+  }
+  
+  .projectTitle {
+    font-size: 1.5rem;
+  }
+  
+  .roomsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Quantity Takeoff / BOQ Section */
+.boqSection {
+  margin-bottom: 2.25rem;
+  background: rgba(18, 18, 24, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.boqHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.boqTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.boqTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.boqBadge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  background: rgba(41, 245, 126, 0.15);
+  border: 1px solid rgba(41, 245, 126, 0.3);
+  color: var(--accent);
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.boqGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.boqCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: all 0.2s ease;
+}
+
+.boqCard:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.boqCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.boqCardLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--textMuted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.boqCardValue {
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.boqCardUnit {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--textMuted);
+  margin-left: 0.2rem;
+}
+
+.boqCardSub {
+  font-size: 0.73rem;
+  color: var(--textNav);
+  line-height: 1.35;
+}
+
+.boqFilterGroup {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.boqRadioBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.73rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--textMuted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.boqRadioBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.boqRadioActive {
+  background: rgba(41, 245, 126, 0.15) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+.boqCheckboxBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--textMuted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.boqCheckboxActive {
+  background: rgba(192, 132, 252, 0.15) !important;
+  border-color: #c084fc !important;
+  color: #e9d5ff !important;
+}
+
+/* Room Card Takeoff Breakdown */
+.roomTakeoffBlock {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 0.65rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+}
+
+.roomTakeoffRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+
+.roomTakeoffLabel {
+  color: var(--textMuted);
+}
+
+.roomTakeoffVal {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.roomCardOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.65rem 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.roomOptionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.roomRadioGroup {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.roomRadioLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: var(--textMuted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.roomRadioLabelActive {
+  background: rgba(41, 245, 126, 0.15) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+.roomCheckLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: var(--textMuted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.roomCheckLabelActive {
+  background: rgba(192, 132, 252, 0.15) !important;
+  border-color: #c084fc !important;
+  color: #e9d5ff !important;
+}

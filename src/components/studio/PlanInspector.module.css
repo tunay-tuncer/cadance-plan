@@ -1,0 +1,353 @@
+.inspectorDrawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 350px;
+  max-width: 90vw;
+  background: #121217;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.85);
+  transition: transform 0.25s ease;
+}
+
+.drawerClosed {
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
+.drawerOpen {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* Header & Tabs */
+.drawerHeader {
+  padding: 1rem 1.15rem;
+  background: #17171e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tabSwitcher {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.tabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--textNav);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tabBtnActive {
+  background: rgba(41, 245, 126, 0.18);
+  color: var(--accent);
+}
+
+.closeDrawerBtn {
+  color: var(--textMuted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.closeDrawerBtn:hover {
+  color: var(--textWhite);
+}
+
+/* Scrollable Content */
+.drawerContent {
+  padding: 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  flex: 1;
+}
+
+/* Layer Hierarchy List */
+.layersList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.layerItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.layerItem:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.layerNameArea {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--textWhite);
+}
+
+.layerDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.layerControls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.layerToggleBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: var(--textNav);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.layerToggleBtn:hover {
+  color: var(--textWhite);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.layerToggleBtnActive {
+  color: var(--accent);
+}
+
+/* Properties Form */
+.sectionTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--textNav);
+  margin-bottom: 0.65rem;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+
+.fieldLabel {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--textMuted);
+}
+
+.textInput, .selectInput {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--textWhite);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.selectInput option {
+  background: #18181f;
+  color: #fff;
+}
+
+.textInput:focus, .selectInput:focus {
+  border-color: var(--accent);
+}
+
+.deleteItemBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.65rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: #f87171;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 0.5rem;
+  transition: all 0.15s ease;
+}
+
+.deleteItemBtn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+}
+
+.multiSelectBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  background: rgba(41, 245, 126, 0.12);
+  border: 1px solid rgba(41, 245, 126, 0.3);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-bottom: 0.85rem;
+}
+
+.presetChipRow {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.presetChip {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--textNav);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.presetChip:hover {
+  background: rgba(41, 245, 126, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Quantity Takeoff & Option Selectors */
+.optionRadioGroup {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.optionRadioLabel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.65rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: var(--textMain);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.optionRadioLabel:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.optionRadioActive {
+  background: rgba(41, 245, 126, 0.12) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--textMain);
+  cursor: pointer;
+  margin-top: 0.35rem;
+  transition: all 0.15s ease;
+}
+
+.checkboxLabel:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.checkboxActive {
+  background: rgba(41, 245, 126, 0.12) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.takeoffCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+.takeoffRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+}
+
+.takeoffLabel {
+  color: var(--textMuted);
+  display: flex;
+  flex-direction: column;
+}
+
+.takeoffSub {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.takeoffValue {
+  font-weight: 700;
+  color: #ffffff;
+  font-size: 0.92rem;
+}

@@ -1,0 +1,139 @@
+.canvasContainer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #0d0d12;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+/* Floating Canvas Controls Overlay (Top Right) */
+.floatingControls {
+  position: absolute;
+  top: 4.25rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 50;
+  pointer-events: auto;
+}
+
+.iconBtn {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(18, 18, 22, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--textMain);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.iconBtnActive {
+  background: rgba(41, 245, 126, 0.22) !important;
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+/* Measure mode badge bottom-left */
+.measureModeBadge {
+  position: absolute;
+  bottom: 5.5rem;
+  left: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  background: rgba(18, 18, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: var(--textMuted);
+  z-index: 40;
+  pointer-events: none;
+}
+
+.measureModeBadge strong {
+  color: var(--accent);
+}
+
+/* Placing Opening Helper Banner */
+.placingBanner {
+  position: absolute;
+  top: 4.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 1.15rem;
+  background: rgba(18, 18, 24, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid var(--accent);
+  border-radius: 30px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 16px rgba(41, 245, 126, 0.3);
+  z-index: 60;
+  white-space: nowrap;
+}
+
+.placingText {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.cancelPlacingBtn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancelPlacingBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+@media (max-width: 768px) {
+  .placingBanner {
+    top: 5.6rem;
+    max-width: 92vw;
+    padding: 0.4rem 0.85rem;
+    box-sizing: border-box;
+  }
+  .placingText {
+    font-size: 0.74rem;
+  }
+}
