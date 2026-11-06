@@ -279,7 +279,7 @@ export default function SurveyorControlBar({
             <span>Duvarı Çiz</span>
           </button>
 
-          <div style={{ display: "flex", gap: "0.35rem" }}>
+          <div className={styles.actionSubRow}>
             {canUndo && onFlipLastWall && (
               <button
                 type="button"

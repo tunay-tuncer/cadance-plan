@@ -469,14 +469,44 @@
 
 @media (max-width: 600px) {
   .container {
-    padding: 5rem 1rem 2rem;
+    padding: 4.5rem 0.85rem calc(2rem + env(safe-area-inset-bottom, 0px));
   }
   
   .projectTitle {
-    font-size: 1.5rem;
+    font-size: 1.4rem;
   }
   
   .roomsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .boqGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .metricsBar {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+  }
+
+  .metricCard {
+    padding: 0.85rem;
+    gap: 0.65rem;
+  }
+
+  .metricIcon {
+    width: 38px;
+    height: 38px;
+    font-size: 1.15rem;
+  }
+
+  .boqSection {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .metricsBar {
     grid-template-columns: 1fr;
   }
 }

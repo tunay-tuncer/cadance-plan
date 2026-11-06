@@ -127,13 +127,40 @@
 }
 
 @media (max-width: 768px) {
-  .placingBanner {
-    top: 5.6rem;
-    max-width: 92vw;
-    padding: 0.4rem 0.85rem;
-    box-sizing: border-box;
+  .floatingControls {
+    top: calc(6.75rem + env(safe-area-inset-top, 0px));
+    right: calc(0.5rem + env(safe-area-inset-right, 0px));
+    gap: 0.35rem;
   }
+
+  .iconBtn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .measureModeBadge {
+    display: none;
+  }
+
+  .placingBanner {
+    top: calc(6.75rem + env(safe-area-inset-top, 0px));
+    max-width: calc(100vw - 1rem);
+    padding: 0.45rem 0.75rem;
+    box-sizing: border-box;
+    font-size: 0.76rem;
+    white-space: normal;
+    text-align: center;
+    gap: 0.5rem;
+  }
+
   .placingText {
     font-size: 0.74rem;
+  }
+
+  .cancelPlacingBtn {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.72rem;
+    flex-shrink: 0;
   }
 }

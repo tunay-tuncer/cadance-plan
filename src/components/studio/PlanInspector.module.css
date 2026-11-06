@@ -351,3 +351,16 @@
   color: #ffffff;
   font-size: 0.92rem;
 }
+
+@media (max-width: 600px) {
+  .inspectorDrawer {
+    width: 100%;
+    max-width: 100vw;
+    border-left: none;
+  }
+
+  .drawerContent {
+    padding: 1rem;
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  }
+}
