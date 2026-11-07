@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { RoomPlanItem } from "@/types/plan";
-import { getDistance, getNormalVector, getUnitVector, computeWallPolygons } from "../cad/geometry";
+import { getDistance, getNormalVector, getUnitVector, computeWallPolygons, computeBeamGeometry } from "../cad/geometry";
 
 /**
  * Sanitizes strings to pure 7-bit ASCII to prevent crashes in AutoCAD R12 / R2000 C++ parsers.
@@ -64,13 +64,16 @@ export function exportRoomToDxf(room: RoomPlanItem, projectName: string = "Floor
   push("0", "ENDTAB");
 
   // LAYER Table (AIA CAD Layers)
-  push("0", "TABLE", "2", "LAYER", "70", 8);
+  push("0", "TABLE", "2", "LAYER", "70", 9);
   push("0", "LAYER", "2", "0", "70", 0, "62", 7, "6", "CONTINUOUS");
   push("0", "LAYER", "2", "A-WALL", "70", 0, "62", 7, "6", "CONTINUOUS");     // White / Black
   push("0", "LAYER", "2", "A-DOOR", "70", 0, "62", 2, "6", "CONTINUOUS");     // Yellow
   push("0", "LAYER", "2", "A-GLAZ", "70", 0, "62", 4, "6", "CONTINUOUS");     // Cyan
   push("0", "LAYER", "2", "A-ELEC", "70", 0, "62", 3, "6", "CONTINUOUS");     // Green
   push("0", "LAYER", "2", "A-HVAC", "70", 0, "62", 30, "6", "CONTINUOUS");    // Orange
+  push("0", "LAYER", "2", "A-CHIM", "70", 0, "62", 1, "6", "CONTINUOUS");     // Red / Orange
+  push("0", "LAYER", "2", "A-MECH", "70", 0, "62", 4, "6", "CONTINUOUS");     // Cyan
+  push("0", "LAYER", "2", "A-BEAM", "70", 0, "62", 8, "6", "HIDDEN");         // Gray, Dashed
   push("0", "LAYER", "2", "A-LITE", "70", 0, "62", 2, "6", "CONTINUOUS");     // Yellow
   push("0", "LAYER", "2", "A-DIMS", "70", 0, "62", 1, "6", "CONTINUOUS");     // Red
   push("0", "ENDTAB");
@@ -273,12 +276,82 @@ export function exportRoomToDxf(room: RoomPlanItem, projectName: string = "Floor
     });
   }
 
+  // Draw Beams (A-BEAM Dashed)
+  if (room.beams && room.beams.length > 0) {
+    room.beams.forEach((beam) => {
+      const geo = computeBeamGeometry(beam, room.walls);
+      if (geo.polygon.length >= 4) {
+        for (let i = 0; i < geo.polygon.length; i++) {
+          const p1 = geo.polygon[i];
+          const p2 = geo.polygon[(i + 1) % geo.polygon.length];
+          addLine(p1.x, p1.y, p2.x, p2.y, "A-BEAM");
+        }
+        addText(beam.name || "KIRİŞ", geo.center.x - 100, geo.center.y, 100, "A-BEAM");
+      }
+    });
+  }
+
   // Draw Lighting Fixtures
   if (room.lighting && room.lighting.length > 0) {
     room.lighting.forEach((l) => {
       addCircle(l.x, l.y, 100, "A-LITE");
       addLine(l.x - 70, l.y - 70, l.x + 70, l.y + 70, "A-LITE");
       addLine(l.x + 70, l.y - 70, l.x - 70, l.y + 70, "A-LITE");
+    });
+  }
+
+  // Draw Chimneys (A-CHIM with X hatch and flue circle)
+  if (room.chimneys && room.chimneys.length > 0) {
+    room.chimneys.forEach((c) => {
+      const halfW = (c.width || 400) / 2;
+      const halfD = (c.depth || 400) / 2;
+      const x1 = c.x - halfW;
+      const x2 = c.x + halfW;
+      const y1 = c.y - halfD;
+      const y2 = c.y + halfD;
+
+      // Outer Box
+      addLine(x1, y1, x2, y1, "A-CHIM");
+      addLine(x2, y1, x2, y2, "A-CHIM");
+      addLine(x2, y2, x1, y2, "A-CHIM");
+      addLine(x1, y2, x1, y1, "A-CHIM");
+
+      // Diagonal X Hatch
+      addLine(x1, y1, x2, y2, "A-CHIM");
+      addLine(x2, y1, x1, y2, "A-CHIM");
+
+      // Flue Circle
+      const r = (c.flueDiameter || 180) / 2;
+      addCircle(c.x, c.y, r, "A-CHIM");
+      addText(c.name || "BACA", c.x - 120, y2 + 50, 100, "A-CHIM");
+    });
+  }
+
+  // Draw AC Units (A-MECH)
+  if (room.acUnits && room.acUnits.length > 0) {
+    room.acUnits.forEach((ac) => {
+      if (ac.type === "split_wall" && ac.wallId) {
+        const wall = room.walls.find((w) => w.id === ac.wallId);
+        if (wall) {
+          const u = getUnitVector(wall.start, wall.end);
+          const n = getNormalVector(wall.start, wall.end);
+          const off = ac.offset || 1000;
+          const p1x = wall.start.x + u.x * off;
+          const p1y = wall.start.y + u.y * off;
+          const p2x = p1x + u.x * ac.width;
+          const p2y = p1y + u.y * ac.width;
+          const p3x = p2x + n.x * ac.depth;
+          const p3y = p2y + n.y * ac.depth;
+          const p4x = p1x + n.x * ac.depth;
+          const p4y = p1y + n.y * ac.depth;
+
+          addLine(p1x, p1y, p2x, p2y, "A-MECH");
+          addLine(p2x, p2y, p3x, p3y, "A-MECH");
+          addLine(p3x, p3y, p4x, p4y, "A-MECH");
+          addLine(p4x, p4y, p1x, p1y, "A-MECH");
+          addText(ac.name || "KLIMA", p1x, p1y - 80, 80, "A-MECH");
+        }
+      }
     });
   }
 

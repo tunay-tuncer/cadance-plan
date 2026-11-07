@@ -1,4 +1,4 @@
-import type { Point2D, WallElement, DoorElement, WindowElement, RoomPlanItem } from "@/types/plan";
+import type { Point2D, WallElement, DoorElement, WindowElement, RoomPlanItem, BeamElement } from "@/types/plan";
 
 /**
  * Calculates Euclidean distance between two points in mm
@@ -403,6 +403,9 @@ export interface RoomQuantityTakeoff {
   ceilingAreaM2: number;
   flooringType: "laminate" | "ceramic";
   hasDrywallCeiling: boolean;
+  beamCount?: number;
+  totalBeamLengthM?: number;
+  totalBeamVolumeM3?: number;
 }
 
 /**
@@ -448,6 +451,16 @@ export function calculateRoomTakeoff(room: RoomPlanItem): RoomQuantityTakeoff {
   const hasDrywallCeiling: boolean =
     room.hasDrywallCeiling ?? (room.ceiling?.visibleIn3d ?? false);
 
+  // Structural Beams takeoff
+  let totalBeamLengthMm = 0;
+  let totalBeamVolumeMm3 = 0;
+  const beams = room.beams || [];
+  beams.forEach((b) => {
+    const geo = computeBeamGeometry(b, room.walls);
+    totalBeamLengthMm += geo.spanLength;
+    totalBeamVolumeMm3 += geo.spanLength * b.width * b.depth;
+  });
+
   return {
     grossWallAreaM2: Number((grossWallAreaMm2 / 1_000_000).toFixed(2)),
     openingsAreaM2: Number((openingsAreaMm2 / 1_000_000).toFixed(2)),
@@ -459,6 +472,9 @@ export function calculateRoomTakeoff(room: RoomPlanItem): RoomQuantityTakeoff {
     ceilingAreaM2: Number((room.calculatedArea || 0).toFixed(2)),
     flooringType,
     hasDrywallCeiling,
+    beamCount: beams.length,
+    totalBeamLengthM: Number((totalBeamLengthMm / 1000).toFixed(2)),
+    totalBeamVolumeM3: Number((totalBeamVolumeMm3 / 1_000_000_000).toFixed(3)),
   };
 }
 
@@ -829,6 +845,78 @@ export interface LightFourWayDimensions {
 }
 
 /**
+ * Casts an orthogonal or directional ray from point p in direction dir against walls.
+ * Returns the nearest wall hit with distance in mm, hit point, and wallId.
+ */
+export function rayCastToWalls(
+  p: Point2D,
+  dir: Point2D,
+  walls: WallElement[]
+): { distanceMm: number; point: Point2D; wallId: string } | null {
+  let closest: { distanceMm: number; point: Point2D; wallId: string } | null = null;
+  let minT = Infinity;
+
+  for (const w of walls) {
+    const ax = w.start.x;
+    const ay = w.start.y;
+    const bx = w.end.x;
+    const by = w.end.y;
+    const dx = bx - ax;
+    const dy = by - ay;
+
+    const denom = dir.x * dy - dir.y * dx;
+    if (Math.abs(denom) > 1e-5) {
+      const t = ((ax - p.x) * dy - (ay - p.y) * dx) / denom;
+      const u = ((ax - p.x) * dir.y - (ay - p.y) * dir.x) / denom;
+
+      if (t >= -0.01 && u >= -0.005 && u <= 1.005) {
+        if (t < minT) {
+          minT = t;
+          closest = {
+            distanceMm: Math.max(0, Math.round(t)),
+            point: { x: p.x + dir.x * Math.max(0, t), y: p.y + dir.y * Math.max(0, t) },
+            wallId: w.id,
+          };
+        }
+      }
+    }
+  }
+
+  // Fallback: If no direct collinear ray intersection, project to closest perpendicular wall in this quadrant
+  if (!closest && walls.length > 0) {
+    for (const w of walls) {
+      const proj = getNearestPointOnSegment(p, w.start, w.end);
+      const toProj = { x: proj.point.x - p.x, y: proj.point.y - p.y };
+      const dot = toProj.x * dir.x + toProj.y * dir.y;
+      if (dot >= -0.01 && proj.distance < minT) {
+        minT = proj.distance;
+        closest = {
+          distanceMm: Math.max(0, Math.round(proj.distance)),
+          point: proj.point,
+          wallId: w.id,
+        };
+      }
+    }
+  }
+
+  return closest;
+}
+
+/**
+ * Checks if a point lies inside a 2D polygon (ray casting test)
+ */
+export function isPointInPolygon(p: Point2D, polygon: Point2D[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    const intersect = ((yi > p.y) !== (yj > p.y)) && (p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
  * Computes orthogonal distances in all 4 cardinal directions (Up, Down, Left, Right)
  * from a lighting fixture point to surrounding bounding room walls.
  */
@@ -836,69 +924,176 @@ export function calculateLightFourWayDimensions(
   p: Point2D,
   walls: WallElement[]
 ): LightFourWayDimensions {
-  const directions = [
-    { key: "up" as const, dir: { x: 0, y: 1 } },
-    { key: "down" as const, dir: { x: 0, y: -1 } },
-    { key: "left" as const, dir: { x: -1, y: 0 } },
-    { key: "right" as const, dir: { x: 1, y: 0 } },
-  ];
-
-  const result: LightFourWayDimensions = {
-    up: null,
-    down: null,
-    left: null,
-    right: null,
+  return {
+    up: rayCastToWalls(p, { x: 0, y: 1 }, walls),
+    down: rayCastToWalls(p, { x: 0, y: -1 }, walls),
+    left: rayCastToWalls(p, { x: -1, y: 0 }, walls),
+    right: rayCastToWalls(p, { x: 1, y: 0 }, walls),
   };
+}
 
-  for (const { key, dir } of directions) {
-    let closest: { distanceMm: number; point: Point2D; wallId: string } | null = null;
-    let minT = Infinity;
+export interface BeamGeometry {
+  polygon: Point2D[];
+  center: Point2D;
+  spanLength: number;
+  spanStartPoint: Point2D;
+  spanEndPoint: Point2D;
+  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  dimensions: {
+    up: { distanceMm: number; point: Point2D; wallId: string } | null;
+    down: { distanceMm: number; point: Point2D; wallId: string } | null;
+    left: { distanceMm: number; point: Point2D; wallId: string } | null;
+    right: { distanceMm: number; point: Point2D; wallId: string } | null;
+  };
+}
 
-    for (const w of walls) {
-      const ax = w.start.x;
-      const ay = w.start.y;
-      const bx = w.end.x;
-      const by = w.end.y;
-      const dx = bx - ax;
-      const dy = by - ay;
+/**
+ * Computes structural beam bounding polygon, spans, and 4-way wall distances.
+ */
+export function computeBeamGeometry(beam: BeamElement, walls: WallElement[]): BeamGeometry {
+  const isHoriz = beam.orientation === "horizontal";
+  const w = beam.width || 250;
+  const bbox = getWallsBoundingBox(walls);
 
-      const denom = dir.x * dy - dir.y * dx;
-      if (Math.abs(denom) > 1e-5) {
-        const t = ((ax - p.x) * dy - (ay - p.y) * dx) / denom;
-        const u = ((ax - p.x) * dir.y - (ay - p.y) * dir.x) / denom;
-
-        if (t > 5 && u >= -0.005 && u <= 1.005) {
-          if (t < minT) {
-            minT = t;
-            closest = {
-              distanceMm: Math.round(t),
-              point: { x: p.x + dir.x * t, y: p.y + dir.y * t },
-              wallId: w.id,
-            };
-          }
-        }
-      }
+  if (isHoriz) {
+    // Horizontal beam (runs along X axis at Y position)
+    let yBottom: number;
+    let yTop: number;
+    if (beam.alignment === "interior") {
+      yBottom = beam.y;
+      yTop = beam.y + w;
+    } else if (beam.alignment === "exterior") {
+      yBottom = beam.y - w;
+      yTop = beam.y;
+    } else {
+      // center / aks
+      yBottom = beam.y - w / 2;
+      yTop = beam.y + w / 2;
     }
+    const yCenter = (yBottom + yTop) / 2;
+    const probeX = beam.x !== undefined && !isNaN(beam.x) ? beam.x : bbox.centerX;
 
-    // Fallback: If no direct collinear ray intersection, project to closest perpendicular wall in this quadrant
-    if (!closest && walls.length > 0) {
-      for (const w of walls) {
-        const proj = getNearestPointOnSegment(p, w.start, w.end);
-        const toProj = { x: proj.point.x - p.x, y: proj.point.y - p.y };
-        const dot = toProj.x * dir.x + toProj.y * dir.y;
-        if (dot > 5 && proj.distance < minT) {
-          minT = proj.distance;
-          closest = {
-            distanceMm: Math.round(proj.distance),
-            point: proj.point,
-            wallId: w.id,
-          };
-        }
-      }
+    // Raycast left and right along yCenter to find room boundaries
+    const hitLeft = rayCastToWalls({ x: probeX, y: yCenter }, { x: -1, y: 0 }, walls);
+    const hitRight = rayCastToWalls({ x: probeX, y: yCenter }, { x: 1, y: 0 }, walls);
+
+    const minX = hitLeft ? hitLeft.point.x : bbox.minX;
+    const maxX = hitRight ? hitRight.point.x : bbox.maxX;
+
+    const startOffset = beam.spanStart || 0;
+    const endOffset = beam.spanEnd || 0;
+
+    const x1 = minX + startOffset;
+    const x2 = maxX - endOffset;
+    const actualX1 = Math.min(x1, x2 - 50);
+    const actualX2 = Math.max(x2, x1 + 50);
+    const midX = (actualX1 + actualX2) / 2;
+
+    const dimUp = rayCastToWalls({ x: midX, y: yTop }, { x: 0, y: 1 }, walls);
+    const dimDown = rayCastToWalls({ x: midX, y: yBottom }, { x: 0, y: -1 }, walls);
+
+    const dimLeft = {
+      distanceMm: Math.max(0, Math.round(actualX1 - minX)),
+      point: { x: minX, y: yCenter },
+      wallId: hitLeft?.wallId || "",
+    };
+
+    const dimRight = {
+      distanceMm: Math.max(0, Math.round(maxX - actualX2)),
+      point: { x: maxX, y: yCenter },
+      wallId: hitRight?.wallId || "",
+    };
+
+    const polygon: Point2D[] = [
+      { x: actualX1, y: yBottom },
+      { x: actualX2, y: yBottom },
+      { x: actualX2, y: yTop },
+      { x: actualX1, y: yTop },
+    ];
+
+    return {
+      polygon,
+      center: { x: midX, y: yCenter },
+      spanLength: Math.round(actualX2 - actualX1),
+      spanStartPoint: { x: actualX1, y: yCenter },
+      spanEndPoint: { x: actualX2, y: yCenter },
+      bounds: { minX: actualX1, maxX: actualX2, minY: yBottom, maxY: yTop },
+      dimensions: {
+        up: dimUp,
+        down: dimDown,
+        left: dimLeft,
+        right: dimRight,
+      },
+    };
+  } else {
+    // Vertical beam (runs along Y axis at X position)
+    let xLeft: number;
+    let xRight: number;
+    if (beam.alignment === "interior") {
+      xLeft = beam.x;
+      xRight = beam.x + w;
+    } else if (beam.alignment === "exterior") {
+      xLeft = beam.x - w;
+      xRight = beam.x;
+    } else {
+      // center / aks
+      xLeft = beam.x - w / 2;
+      xRight = beam.x + w / 2;
     }
+    const xCenter = (xLeft + xRight) / 2;
+    const probeY = beam.y !== undefined && !isNaN(beam.y) ? beam.y : bbox.centerY;
 
-    result[key] = closest;
+    // Raycast down and up along xCenter to find room boundaries
+    const hitDown = rayCastToWalls({ x: xCenter, y: probeY }, { x: 0, y: -1 }, walls);
+    const hitUp = rayCastToWalls({ x: xCenter, y: probeY }, { x: 0, y: 1 }, walls);
+
+    const minY = hitDown ? hitDown.point.y : bbox.minY;
+    const maxY = hitUp ? hitUp.point.y : bbox.maxY;
+
+    const startOffset = beam.spanStart || 0;
+    const endOffset = beam.spanEnd || 0;
+
+    const y1 = minY + startOffset;
+    const y2 = maxY - endOffset;
+    const actualY1 = Math.min(y1, y2 - 50);
+    const actualY2 = Math.max(y2, y1 + 50);
+    const midY = (actualY1 + actualY2) / 2;
+
+    const dimLeft = rayCastToWalls({ x: xLeft, y: midY }, { x: -1, y: 0 }, walls);
+    const dimRight = rayCastToWalls({ x: xRight, y: midY }, { x: 1, y: 0 }, walls);
+
+    const dimDown = {
+      distanceMm: Math.max(0, Math.round(actualY1 - minY)),
+      point: { x: xCenter, y: minY },
+      wallId: hitDown?.wallId || "",
+    };
+
+    const dimUp = {
+      distanceMm: Math.max(0, Math.round(maxY - actualY2)),
+      point: { x: xCenter, y: maxY },
+      wallId: hitUp?.wallId || "",
+    };
+
+    const polygon: Point2D[] = [
+      { x: xLeft, y: actualY1 },
+      { x: xRight, y: actualY1 },
+      { x: xRight, y: actualY2 },
+      { x: xLeft, y: actualY2 },
+    ];
+
+    return {
+      polygon,
+      center: { x: xCenter, y: midY },
+      spanLength: Math.round(actualY2 - actualY1),
+      spanStartPoint: { x: xCenter, y: actualY1 },
+      spanEndPoint: { x: xCenter, y: actualY2 },
+      bounds: { minX: xLeft, maxX: xRight, minY: actualY1, maxY: actualY2 },
+      dimensions: {
+        up: dimUp,
+        down: dimDown,
+        left: dimLeft,
+        right: dimRight,
+      },
+    };
   }
-
-  return result;
 }

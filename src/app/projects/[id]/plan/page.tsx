@@ -20,6 +20,12 @@ import type {
   ElectricalElement,
   RadiatorElement,
   LightFixtureElement,
+  BeamElement,
+  BeamOrientation,
+  BeamAlignment,
+  ChimneyElement,
+  ACUnitElement,
+  ACType,
 } from "@/types/plan";
 import { DEFAULT_LAYER_SETTINGS } from "@/types/plan";
 import {
@@ -29,6 +35,7 @@ import {
   getPolygonFromWalls,
   mergeColinearWalls,
   calculateLightPositionFromWallDistances,
+  getRoomCentroid,
 } from "@/lib/cad/geometry";
 import { exportRoomToDxf, downloadDxfFile, exportRoomSceneToGltf } from "@/lib/exporters/cadExport";
 import PlanCanvas2D from "@/components/canvas/PlanCanvas2D";
@@ -49,6 +56,7 @@ import {
   MdPower,
   MdWhatshot,
   MdLightbulb,
+  MdArchitecture,
 } from "react-icons/md";
 import styles from "./planStudio.module.css";
 
@@ -128,11 +136,11 @@ function PlanStudioContent({ params }: PageProps) {
 
   // Selected Element (Single and Multi-selection)
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const [selectedElementType, setSelectedElementType] = useState<"wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null>(null);
+  const [selectedElementType, setSelectedElementType] = useState<"wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null>(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
 
   // Selection handlers with bidirectional sync between 2D and 3D
-  const handleSelectElement = useCallback((id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null) => {
+  const handleSelectElement = useCallback((id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null) => {
     setSelectedElementId(id);
     setSelectedElementType(type);
     setSelectedElementIds(id ? [id] : []);
@@ -161,6 +169,15 @@ function PlanStudioContent({ params }: PageProps) {
       } else if (room.lighting?.some((l) => l.id === singleId)) {
         setSelectedElementId(singleId);
         setSelectedElementType("lighting");
+      } else if (room.beams?.some((b) => b.id === singleId)) {
+        setSelectedElementId(singleId);
+        setSelectedElementType("beam");
+      } else if (room.chimneys?.some((c) => c.id === singleId)) {
+        setSelectedElementId(singleId);
+        setSelectedElementType("chimney");
+      } else if (room.acUnits?.some((ac) => ac.id === singleId)) {
+        setSelectedElementId(singleId);
+        setSelectedElementType("acUnit");
       }
     } else {
       setSelectedElementId(null);
@@ -169,7 +186,7 @@ function PlanStudioContent({ params }: PageProps) {
     if (ids.length > 0) {
       setIsInspectorOpen(true);
     }
-  }, [room.walls, room.doors, room.windows, room.electrical, room.radiators, room.lighting]);
+  }, [room.walls, room.doors, room.windows, room.electrical, room.radiators, room.lighting, room.beams, room.chimneys, room.acUnits]);
 
   const handleDeselect = useCallback(() => {
     setSelectedElementId(null);
@@ -177,7 +194,7 @@ function PlanStudioContent({ params }: PageProps) {
     setSelectedElementIds([]);
   }, []);
 
-  const handleChangeElementOffset = useCallback((elementId: string, type: "door" | "window" | "electrical" | "radiator", newOffsetMm: number) => {
+  const handleChangeElementOffset = useCallback((elementId: string, type: "door" | "window" | "electrical" | "radiator" | "acUnit", newOffsetMm: number) => {
     setRoom((prev) => {
       if (type === "door") {
         return {
@@ -199,6 +216,11 @@ function PlanStudioContent({ params }: PageProps) {
           ...prev,
           radiators: prev.radiators?.map((rad) => (rad.id === elementId ? { ...rad, offset: Math.round(newOffsetMm) } : rad)),
         };
+      } else if (type === "acUnit") {
+        return {
+          ...prev,
+          acUnits: prev.acUnits?.map((ac) => (ac.id === elementId ? { ...ac, offset: Math.round(newOffsetMm) } : ac)),
+        };
       }
       return prev;
     });
@@ -211,17 +233,65 @@ function PlanStudioContent({ params }: PageProps) {
     }));
   }, []);
 
+  const handleChangeBeamPosition = useCallback((beamId: string, updates: Partial<BeamElement>) => {
+    setRoom((prev) => ({
+      ...prev,
+      beams: (prev.beams || []).map((b) => (b.id === beamId ? { ...b, ...updates } : b)),
+    }));
+  }, []);
+
+  const handleChangeChimneyPosition = useCallback((chimneyId: string, newX: number, newY: number) => {
+    setRoom((prev) => ({
+      ...prev,
+      chimneys: (prev.chimneys || []).map((c) => (c.id === chimneyId ? { ...c, x: Math.round(newX), y: Math.round(newY) } : c)),
+    }));
+  }, []);
+
+  const handleChangeACUnitPosition = useCallback((acId: string, updates: Partial<ACUnitElement>) => {
+    setRoom((prev) => ({
+      ...prev,
+      acUnits: (prev.acUnits || []).map((ac) => (ac.id === acId ? { ...ac, ...updates } : ac)),
+    }));
+  }, []);
+
   // Add Openings & MEP Modals State
   const [isDoorModalOpen, setIsDoorModalOpen] = useState(false);
   const [isWindowModalOpen, setIsWindowModalOpen] = useState(false);
   const [isElectricalModalOpen, setIsElectricalModalOpen] = useState(false);
   const [isRadiatorModalOpen, setIsRadiatorModalOpen] = useState(false);
   const [isLightModalOpen, setIsLightModalOpen] = useState(false);
-  const [placingOpening, setPlacingOpening] = useState<"door" | "window" | "electrical" | "radiator" | null>(null);
+  const [isBeamModalOpen, setIsBeamModalOpen] = useState(false);
+  const [isChimneyModalOpen, setIsChimneyModalOpen] = useState(false);
+  const [isACModalOpen, setIsACModalOpen] = useState(false);
+  const [placingOpening, setPlacingOpening] = useState<"door" | "window" | "electrical" | "radiator" | "acUnit" | null>(null);
+
+  // New Chimney Form
+  const [chimneyName, setChimneyName] = useState<string>("");
+  const [chimneyWidthCm, setChimneyWidthCm] = useState<number>(40);
+  const [chimneyDepthCm, setChimneyDepthCm] = useState<number>(40);
+  const [chimneyFlueCm, setChimneyFlueCm] = useState<number>(18);
+
+  // New AC Unit Form
+  const [acType, setACType] = useState<ACType>("split_wall");
+  const [acWallId, setAcWallId] = useState<string>("");
+  const [acOffset, setAcOffset] = useState<number>(1000);
+  const [acElevation, setAcElevation] = useState<number>(2400);
+  const [acWidthCm, setAcWidthCm] = useState<number>(90);
+  const [acDepthCm, setAcDepthCm] = useState<number>(25);
+  const [acHeightCm, setAcHeightCm] = useState<number>(30);
+  const [acCapacityBtu, setAcCapacityBtu] = useState<number>(12000);
+
+  // New Beam Form
+  const [beamOrientation, setBeamOrientation] = useState<BeamOrientation>("horizontal");
+  const [beamAlignment, setBeamAlignment] = useState<BeamAlignment>("center");
+  const [beamWidthCm, setBeamWidthCm] = useState<number>(25);
+  const [beamDepthCm, setBeamDepthCm] = useState<number>(50);
+  const [beamName, setBeamName] = useState<string>("");
 
   // New Door Form
   const [targetWallId, setTargetWallId] = useState<string>("");
   const [doorWidth, setDoorWidth] = useState<number>(900);
+  const [doorHeight, setDoorHeight] = useState<number>(2100);
   const [doorSwingDir, setDoorSwingDir] = useState<"left" | "right">("right");
   const [doorSwingOri, setDoorSwingOri] = useState<"inward" | "outward">("inward");
   const [doorOffset, setDoorOffset] = useState<number>(200);
@@ -325,8 +395,8 @@ function PlanStudioContent({ params }: PageProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleFlipActiveWall]);
 
-  // Handle direct wall selection from 2D drawing for door/window/electrical/radiator
-  const handleSelectWallForOpening = useCallback((wallId: string, offsetMm: number, type: "door" | "window" | "electrical" | "radiator") => {
+  // Handle direct wall selection from 2D drawing for door/window/electrical/radiator/acUnit
+  const handleSelectWallForOpening = useCallback((wallId: string, offsetMm: number, type: "door" | "window" | "electrical" | "radiator" | "acUnit") => {
     const wall = room.walls.find((w) => w.id === wallId);
     const wallLen = wall ? Math.round(getDistance(wall.start, wall.end)) : 3000;
 
@@ -350,9 +420,14 @@ function PlanStudioContent({ params }: PageProps) {
       const safeOffset = Math.max(50, Math.min(wallLen - radiatorWidth - 50, Math.round(offsetMm)));
       setRadiatorOffset(safeOffset);
       setIsRadiatorModalOpen(true);
+    } else if (type === "acUnit") {
+      setAcWallId(wallId);
+      const safeOffset = Math.max(50, Math.min(wallLen - Math.round(acWidthCm * 10) - 50, Math.round(offsetMm)));
+      setAcOffset(safeOffset);
+      setIsACModalOpen(true);
     }
     setPlacingOpening(null);
-  }, [room.walls, doorWidth, windowWidth, radiatorWidth]);
+  }, [room.walls, doorWidth, windowWidth, radiatorWidth, acWidthCm]);
 
   // Subscriptions
   useEffect(() => {
@@ -570,6 +645,15 @@ function PlanStudioContent({ params }: PageProps) {
       const remainingLighting = (prev.lighting || []).filter(
         (l) => !ids.includes(l.id)
       );
+      const remainingBeams = (prev.beams || []).filter(
+        (b) => !ids.includes(b.id)
+      );
+      const remainingChimneys = (prev.chimneys || []).filter(
+        (c) => !ids.includes(c.id)
+      );
+      const remainingACUnits = (prev.acUnits || []).filter(
+        (ac) => !ids.includes(ac.id)
+      );
 
       // Only if a wall was deleted do we reopen room perimeter and snap cursor
       if (wallDeleted) {
@@ -587,6 +671,9 @@ function PlanStudioContent({ params }: PageProps) {
           electrical: remainingElectrical,
           radiators: remainingRadiators,
           lighting: remainingLighting,
+          beams: remainingBeams,
+          chimneys: remainingChimneys,
+          acUnits: remainingACUnits,
           isClosed: false,
           calculatedArea: 0,
           calculatedPerimeter: calculatePerimeter(remainingWalls),
@@ -598,7 +685,7 @@ function PlanStudioContent({ params }: PageProps) {
         };
       }
 
-      // If only non-wall elements (doors, windows, electrical, radiators, lighting) were deleted:
+      // If only non-wall elements (doors, windows, electrical, radiators, lighting, beams, chimneys, acUnits) were deleted:
       // PRESERVE room isClosed status, calculatedArea, slab, and ceiling!
       return {
         ...prev,
@@ -607,6 +694,9 @@ function PlanStudioContent({ params }: PageProps) {
         electrical: remainingElectrical,
         radiators: remainingRadiators,
         lighting: remainingLighting,
+        beams: remainingBeams,
+        chimneys: remainingChimneys,
+        acUnits: remainingACUnits,
         doorCount: remainingDoors.length,
         windowCount: remainingWindows.length,
       };
@@ -644,7 +734,7 @@ function PlanStudioContent({ params }: PageProps) {
       wallId: targetWallId,
       offset: doorOffset,
       width: doorWidth,
-      height: 2100,
+      height: doorHeight || 2100,
       swingDirection: doorSwingDir,
       swingOrientation: doorSwingOri,
       swingAngle: 90,
@@ -767,7 +857,90 @@ function PlanStudioContent({ params }: PageProps) {
     setIsLightModalOpen(false);
   };
 
-  // 10. Save to Firestore
+  // 10. Add Structural Beam (Kiriş)
+  const handleConfirmAddBeam = () => {
+    const centroid = getRoomCentroid(room);
+    const count = (room.beams?.length || 0) + 1;
+    const newBeam: BeamElement = {
+      id: `beam-${Date.now()}`,
+      name: beamName.trim() || `K${100 + count}`,
+      orientation: beamOrientation,
+      alignment: beamAlignment,
+      width: Math.max(100, Math.round(beamWidthCm * 10)),
+      depth: Math.max(100, Math.round(beamDepthCm * 10)),
+      x: Math.round(centroid.x),
+      y: Math.round(centroid.y),
+    };
+
+    setRoom((prev) => ({
+      ...prev,
+      beams: [...(prev.beams || []), newBeam],
+    }));
+
+    setSelectedElementId(newBeam.id);
+    setSelectedElementType("beam");
+    setSelectedElementIds([newBeam.id]);
+    setIsBeamModalOpen(false);
+    setBeamName("");
+  };
+
+  // 10b. Add Chimney (Baca)
+  const handleConfirmAddChimney = () => {
+    const centroid = getRoomCentroid(room);
+    const count = (room.chimneys?.length || 0) + 1;
+    const newChimney: ChimneyElement = {
+      id: `chimney-${Date.now()}`,
+      name: chimneyName.trim() || `BACA-${count}`,
+      x: Math.round(centroid.x),
+      y: Math.round(centroid.y),
+      width: Math.max(200, Math.round(chimneyWidthCm * 10)),
+      depth: Math.max(200, Math.round(chimneyDepthCm * 10)),
+      flueDiameter: Math.max(100, Math.round(chimneyFlueCm * 10)),
+    };
+
+    setRoom((prev) => ({
+      ...prev,
+      chimneys: [...(prev.chimneys || []), newChimney],
+    }));
+
+    setSelectedElementId(newChimney.id);
+    setSelectedElementType("chimney");
+    setSelectedElementIds([newChimney.id]);
+    setIsChimneyModalOpen(false);
+    setChimneyName("");
+  };
+
+  // 10c. Add AC Unit (Klima)
+  const handleConfirmAddACUnit = () => {
+    const wallId = acWallId || targetWallId || room.walls[0]?.id;
+    if (!wallId) return;
+
+    const count = (room.acUnits?.length || 0) + 1;
+    const newAC: ACUnitElement = {
+      id: `ac-${Date.now()}`,
+      name: `KLİMA-${count}`,
+      type: acType,
+      wallId,
+      offset: acOffset,
+      elevation: acElevation,
+      width: Math.max(400, Math.round(acWidthCm * 10)),
+      depth: Math.max(150, Math.round(acDepthCm * 10)),
+      height: Math.max(200, Math.round(acHeightCm * 10)),
+      capacityBtu: acCapacityBtu,
+    };
+
+    setRoom((prev) => ({
+      ...prev,
+      acUnits: [...(prev.acUnits || []), newAC],
+    }));
+
+    setSelectedElementId(newAC.id);
+    setSelectedElementType("acUnit");
+    setSelectedElementIds([newAC.id]);
+    setIsACModalOpen(false);
+  };
+
+  // 11. Save to Firestore
   const handleSave = async () => {
     if (!user?.uid || !projectId || !roomId) {
       alert("Lütfen giriş yapın.");
@@ -798,6 +971,9 @@ function PlanStudioContent({ params }: PageProps) {
         electrical: room.electrical || [],
         radiators: room.radiators || [],
         lighting: room.lighting || [],
+        beams: room.beams || [],
+        chimneys: room.chimneys || [],
+        acUnits: room.acUnits || [],
       });
 
       setSaveSuccess(true);
@@ -938,6 +1114,9 @@ function PlanStudioContent({ params }: PageProps) {
             onSelectMultiple={handleSelectMultiple}
             onChangeElementOffset={handleChangeElementOffset}
             onChangeLightPosition={handleChangeLightPosition}
+            onChangeBeamPosition={handleChangeBeamPosition}
+            onChangeChimneyPosition={handleChangeChimneyPosition}
+            onChangeACUnitPosition={handleChangeACUnitPosition}
             onSetActivePoint={setActivePoint}
             layerSettings={room.layerSettings}
             placingOpening={placingOpening}
@@ -956,6 +1135,9 @@ function PlanStudioContent({ params }: PageProps) {
             onOpenAddElectricalModal={() => setPlacingOpening("electrical")}
             onOpenAddRadiatorModal={() => setPlacingOpening("radiator")}
             onOpenAddLightModal={() => setIsLightModalOpen(true)}
+            onOpenAddBeamModal={() => setIsBeamModalOpen(true)}
+            onOpenAddChimneyModal={() => setIsChimneyModalOpen(true)}
+            onOpenAddACModal={() => setPlacingOpening("acUnit")}
             onReopenPerimeter={handleReopenPerimeter}
             onFlipLastWall={handleFlipActiveWall}
             isNearOrigin={!room.isClosed && room.walls.length >= 2 && getDistance(activePoint, room.walls[0]?.start ?? { x: 0, y: 0 }) < 600}
@@ -1079,31 +1261,45 @@ function PlanStudioContent({ params }: PageProps) {
               </>
             )}
 
-            <div className={styles.formField}>
-              <label className={styles.formLabel}>Kapı Genişliği</label>
-              <select
-                value={doorWidth}
-                onChange={(e) => setDoorWidth(Number(e.target.value))}
-                className={styles.selectInput}
-              >
-                <option value={700}>70 cm (Banyo / WC)</option>
-                <option value={800}>80 cm (Oda)</option>
-                <option value={900}>90 cm (Standart Oda)</option>
-                <option value={1000}>100 cm (Giriş Kapısı)</option>
-                <option value={1200}>120 cm (Geniş Kapı)</option>
-                <option value={1600}>160 cm (Çift / Geniş Sürme)</option>
-                <option value={2000}>200 cm (Büyük Salon Sürme)</option>
-              </select>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Kapı Genişliği</label>
+                <select
+                  value={doorWidth}
+                  onChange={(e) => setDoorWidth(Number(e.target.value))}
+                  className={styles.selectInput}
+                >
+                  <option value={700}>70 cm (Banyo / WC)</option>
+                  <option value={800}>80 cm (Oda)</option>
+                  <option value={900}>90 cm (Standart Oda)</option>
+                  <option value={1000}>100 cm (Giriş Kapısı)</option>
+                  <option value={1200}>120 cm (Geniş Kapı)</option>
+                  <option value={1600}>160 cm (Çift / Geniş Sürme)</option>
+                  <option value={2000}>200 cm (Büyük Salon Sürme)</option>
+                </select>
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Kapı Yüksekliği (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={doorHeight ? Math.round(doorHeight / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setDoorHeight(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
+                  className={styles.textInput}
+                />
+              </div>
             </div>
 
             <div className={styles.formField}>
               <label className={styles.formLabel}>Duvar Başından Mesafe (cm)</label>
               <input
                 type="number"
-                min="5"
                 step="5"
-                value={Math.round(doorOffset / 10)}
-                onChange={(e) => setDoorOffset((Number(e.target.value) || 0) * 10)}
+                value={doorOffset ? Math.round(doorOffset / 10) : ""}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setDoorOffset(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                 className={styles.textInput}
               />
             </div>
@@ -1235,10 +1431,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Genişlik (cm)</label>
                 <input
                   type="number"
-                  min="50"
                   step="5"
-                  value={Math.round(windowWidth / 10)}
-                  onChange={(e) => setWindowWidth((Number(e.target.value) || 0) * 10)}
+                  value={windowWidth ? Math.round(windowWidth / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setWindowWidth(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1247,10 +1443,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Yükseklik (cm)</label>
                 <input
                   type="number"
-                  min="50"
                   step="5"
-                  value={Math.round(windowHeight / 10)}
-                  onChange={(e) => setWindowHeight((Number(e.target.value) || 0) * 10)}
+                  value={windowHeight ? Math.round(windowHeight / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setWindowHeight(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1261,10 +1457,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Parapet Kotu (cm)</label>
                 <input
                   type="number"
-                  min="0"
                   step="5"
-                  value={Math.round(windowSill / 10)}
-                  onChange={(e) => setWindowSill((Number(e.target.value) || 0) * 10)}
+                  value={windowSill !== undefined ? Math.round(windowSill / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setWindowSill(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                   disabled={windowType === "french"}
                 />
@@ -1274,10 +1470,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı Mesafe (cm)</label>
                 <input
                   type="number"
-                  min="5"
                   step="5"
-                  value={Math.round(windowOffset / 10)}
-                  onChange={(e) => setWindowOffset((Number(e.target.value) || 0) * 10)}
+                  value={windowOffset ? Math.round(windowOffset / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setWindowOffset(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1350,10 +1546,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı (cm)</label>
                 <input
                   type="number"
-                  min="5"
                   step="5"
-                  value={Math.round(electricalOffset / 10)}
-                  onChange={(e) => setElectricalOffset((Number(e.target.value) || 0) * 10)}
+                  value={electricalOffset ? Math.round(electricalOffset / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setElectricalOffset(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1362,11 +1558,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Montaj Kotu (cm)</label>
                 <input
                   type="number"
-                  min="5"
-                  max="280"
                   step="5"
-                  value={Math.round(electricalElevation / 10)}
-                  onChange={(e) => setElectricalElevation((Number(e.target.value) || 0) * 10)}
+                  value={electricalElevation !== undefined ? Math.round(electricalElevation / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setElectricalElevation(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1438,10 +1633,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı (cm)</label>
                 <input
                   type="number"
-                  min="5"
                   step="5"
-                  value={Math.round(radiatorOffset / 10)}
-                  onChange={(e) => setRadiatorOffset((Number(e.target.value) || 0) * 10)}
+                  value={radiatorOffset ? Math.round(radiatorOffset / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setRadiatorOffset(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1450,11 +1645,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Yükseklik (cm)</label>
                 <input
                   type="number"
-                  min="30"
-                  max="100"
                   step="5"
-                  value={Math.round(radiatorHeight / 10)}
-                  onChange={(e) => setRadiatorHeight((Number(e.target.value) || 0) * 10)}
+                  value={radiatorHeight ? Math.round(radiatorHeight / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setRadiatorHeight(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1509,10 +1703,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>1. Duvara Mesafe (cm)</label>
                 <input
                   type="number"
-                  min="10"
                   step="5"
-                  value={Math.round(lightDist1 / 10)}
-                  onChange={(e) => setLightDist1((Number(e.target.value) || 0) * 10)}
+                  value={lightDist1 ? Math.round(lightDist1 / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setLightDist1(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1521,10 +1715,10 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>2. Duvara Mesafe (cm)</label>
                 <input
                   type="number"
-                  min="10"
                   step="5"
-                  value={Math.round(lightDist2 / 10)}
-                  onChange={(e) => setLightDist2((Number(e.target.value) || 0) * 10)}
+                  value={lightDist2 ? Math.round(lightDist2 / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setLightDist2(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
                   className={styles.textInput}
                 />
               </div>
@@ -1537,6 +1731,319 @@ function PlanStudioContent({ params }: PageProps) {
               style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
             >
               Armatürü Yerleştir
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Structural Beam Modal */}
+      {isBeamModalOpen && (
+        <div className={styles.modalBackdrop} onClick={() => setIsBeamModalOpen(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHead}>
+              <h2 className={styles.modalTitle}>
+                <MdArchitecture size={18} color="#c084fc" style={{ verticalAlign: "middle", marginRight: "6px" }} />
+                Kiriş Ekle (Structural Beam)
+              </h2>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setIsBeamModalOpen(false)}
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Kiriş Kodu / Tanımı</label>
+              <input
+                type="text"
+                value={beamName}
+                onChange={(e) => setBeamName(e.target.value)}
+                placeholder={`Örn: K${(room.beams?.length || 0) + 101}`}
+                className={styles.textInput}
+              />
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Doğrultu (Yatay / Dikey)</label>
+              <div className={styles.segmentedControl}>
+                <button
+                  type="button"
+                  onClick={() => setBeamOrientation("horizontal")}
+                  className={`${styles.segmentBtn} ${beamOrientation === "horizontal" ? styles.segmentBtnActive : ""}`}
+                >
+                  ↔ Yatay (X Ekseni)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBeamOrientation("vertical")}
+                  className={`${styles.segmentBtn} ${beamOrientation === "vertical" ? styles.segmentBtnActive : ""}`}
+                >
+                  ↕ Dikey (Y Ekseni)
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Hizalama (Referans Hattı)</label>
+              <div className={styles.segmentedControl}>
+                {(["interior", "center", "exterior"] as const).map((align) => (
+                  <button
+                    key={align}
+                    type="button"
+                    onClick={() => setBeamAlignment(align)}
+                    className={`${styles.segmentBtn} ${beamAlignment === align ? styles.segmentBtnActive : ""}`}
+                  >
+                    {align === "interior" ? "İç Hat" : align === "center" ? "Aks (Orta)" : "Dış Hat"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Kalınlık / Genişlik (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={beamWidthCm || ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setBeamWidthCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                  className={styles.textInput}
+                />
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Sarkma Derinliği (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={beamDepthCm || ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setBeamDepthCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                  className={styles.textInput}
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className={styles.saveBtn}
+              onClick={handleConfirmAddBeam}
+              style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
+            >
+              Kirişi Odaya Ekle
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Chimney (Baca) Modal */}
+      {isChimneyModalOpen && (
+        <div className={styles.modalBackdrop} onClick={() => setIsChimneyModalOpen(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHead}>
+              <h2 className={styles.modalTitle}>
+                <span style={{ color: "#ea580c", marginRight: "6px" }}>🔥</span>
+                Baca Ekle (Chimney Flue)
+              </h2>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setIsChimneyModalOpen(false)}
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Baca Kodu / Tanımı</label>
+              <input
+                type="text"
+                value={chimneyName}
+                onChange={(e) => setChimneyName(e.target.value)}
+                placeholder={`Örn: BACA-${(room.chimneys?.length || 0) + 1}`}
+                className={styles.textInput}
+              />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Genişlik (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={chimneyWidthCm || ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setChimneyWidthCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                  className={styles.textInput}
+                />
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Derinlik (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={chimneyDepthCm || ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setChimneyDepthCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                  className={styles.textInput}
+                />
+              </div>
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>İç Duman Kanalı Çapı (cm)</label>
+              <input
+                type="number"
+                step="2"
+                value={chimneyFlueCm || ""}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setChimneyFlueCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                className={styles.textInput}
+              />
+            </div>
+
+            <button
+              type="button"
+              className={styles.saveBtn}
+              onClick={handleConfirmAddChimney}
+              style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
+            >
+              Bacayı Odaya Ekle
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add AC Unit (Klima) Modal */}
+      {isACModalOpen && (
+        <div className={styles.modalBackdrop} onClick={() => setIsACModalOpen(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHead}>
+              <h2 className={styles.modalTitle}>
+                <span style={{ color: "#06b6d4", marginRight: "6px" }}>❄️</span>
+                Klima Ekle (AC Unit)
+              </h2>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setIsACModalOpen(false)}
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Hangi Duvara Monte Edilsin?</label>
+              <select
+                value={acWallId || targetWallId}
+                onChange={(e) => setAcWallId(e.target.value)}
+                className={styles.selectInput}
+              >
+                {room.walls.map((w, idx) => (
+                  <option key={w.id} value={w.id}>
+                    Duvar {idx + 1} ({Math.round(getDistance(w.start, w.end) / 10)} cm)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Klima Tipi</label>
+              <div className={styles.segmentedControl}>
+                <button
+                  type="button"
+                  onClick={() => setACType("split_wall")}
+                  className={`${styles.segmentBtn} ${acType === "split_wall" ? styles.segmentBtnActive : ""}`}
+                >
+                  Duvar Tipi Split
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setACType("ceiling_cassette")}
+                  className={`${styles.segmentBtn} ${acType === "ceiling_cassette" ? styles.segmentBtnActive : ""}`}
+                >
+                  Kaset Tipi Tavan
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Duvar Başı (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={acOffset ? Math.round(acOffset / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setAcOffset(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
+                  className={styles.textInput}
+                />
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Montaj Kotu (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={acElevation ? Math.round(acElevation / 10) : ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setAcElevation(e.target.value === "" ? 0 : Number(e.target.value) * 10)}
+                  className={styles.textInput}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.4rem" }}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Genişlik (cm)</label>
+                <input
+                  type="number"
+                  step="5"
+                  value={acWidthCm || ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setAcWidthCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                  className={styles.textInput}
+                />
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Derinlik (cm)</label>
+                <input
+                  type="number"
+                  step="2"
+                  value={acDepthCm || ""}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setAcDepthCm(e.target.value === "" ? 0 : Number(e.target.value))}
+                  className={styles.textInput}
+                />
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Kapasite (BTU)</label>
+                <select
+                  value={acCapacityBtu}
+                  onChange={(e) => setAcCapacityBtu(Number(e.target.value))}
+                  className={styles.selectInput}
+                >
+                  <option value={9000}>9.000 BTU</option>
+                  <option value={12000}>12.000 BTU</option>
+                  <option value={18000}>18.000 BTU</option>
+                  <option value={24000}>24.000 BTU</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className={styles.saveBtn}
+              onClick={handleConfirmAddACUnit}
+              style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
+            >
+              Klimayı Odaya Ekle
             </button>
           </div>
         </div>

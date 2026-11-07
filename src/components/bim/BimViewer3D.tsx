@@ -12,6 +12,7 @@ import type {
   ElectricalElement,
   RadiatorElement,
   LightFixtureElement,
+  BeamElement,
   LayerSettings,
 } from "@/types/plan";
 import {
@@ -19,6 +20,7 @@ import {
   getWallsBoundingBox,
   computeWallPolygons,
   WallPolygonCorners,
+  computeBeamGeometry,
 } from "@/lib/cad/geometry";
 
 interface BimViewer3DProps {
@@ -26,9 +28,9 @@ interface BimViewer3DProps {
   layerSettings?: LayerSettings;
   sceneGroupRef?: React.RefObject<THREE.Group | null>;
   selectedElementId?: string | null;
-  selectedElementType?: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null;
+  selectedElementType?: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null;
   selectedElementIds?: string[];
-  onSelectElement?: (id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null) => void;
+  onSelectElement?: (id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null) => void;
 }
 
 // Global CAD mm to 3D Meter Scale (1 Unit = 1 Meter)
@@ -1020,6 +1022,182 @@ function CeilingMesh({ room }: { room: RoomPlanItem }) {
   );
 }
 
+// 6. Structural 3D Beam Mesh (Hanging down from ceiling)
+function Beam3DMesh({
+  beam,
+  walls,
+  wallHeightMm = 2800,
+  isSelected = false,
+  onSelect,
+}: {
+  beam: BeamElement;
+  walls: WallElement[];
+  wallHeightMm?: number;
+  isSelected?: boolean;
+  onSelect?: (id: string, type: "beam") => void;
+}) {
+  const geo = useMemo(() => computeBeamGeometry(beam, walls), [beam, walls]);
+  const isHoriz = beam.orientation === "horizontal";
+  const lengthX = (isHoriz ? geo.spanLength : beam.width) * SCALE;
+  const lengthZ = (isHoriz ? beam.width : geo.spanLength) * SCALE;
+  const heightY = beam.depth * SCALE;
+  const posX = geo.center.x * SCALE;
+  const posZ = -geo.center.y * SCALE;
+  const posY = (wallHeightMm - beam.depth / 2) * SCALE;
+
+  return (
+    <group position={[posX, posY, posZ]}>
+      <mesh
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect?.(beam.id, "beam");
+        }}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[lengthX, heightY, lengthZ]} />
+        <meshStandardMaterial
+          color={isSelected ? "#a7f3d0" : "#cbd5e1"}
+          roughness={0.8}
+          metalness={0.05}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * 3D Chimney Column (Baca Kolonu)
+ */
+function Chimney3DMesh({
+  chimney,
+  wallHeightMm,
+  isSelected,
+  onSelect,
+}: {
+  chimney: any;
+  wallHeightMm: number;
+  isSelected: boolean;
+  onSelect?: (id: string, type: "chimney") => void;
+}) {
+  const widthM = (chimney.width || 400) * SCALE;
+  const depthM = (chimney.depth || 400) * SCALE;
+  const heightM = wallHeightMm * SCALE;
+  const posX = chimney.x * SCALE;
+  const posZ = -chimney.y * SCALE;
+  const posY = heightM / 2;
+
+  const flueM = (chimney.flueDiameter || 180) * SCALE;
+
+  return (
+    <group position={[posX, posY, posZ]}>
+      {/* Outer Masonry Chimney Column */}
+      <mesh
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect?.(chimney.id, "chimney");
+        }}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[widthM, heightM, depthM]} />
+        <meshStandardMaterial
+          color={isSelected ? "#a7f3d0" : "#cbd5e1"}
+          roughness={0.85}
+          metalness={0.05}
+        />
+      </mesh>
+
+      {/* Top Smoke Flue Collar Indicator */}
+      <mesh position={[0, heightM / 2 + 0.04, 0]} castShadow>
+        <cylinderGeometry args={[flueM / 2, flueM / 2, 0.08, 24]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.4} metalness={0.7} />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * 3D AC Unit Fixture (Klima)
+ */
+function ACUnit3DFixture({
+  ac,
+  wall,
+  isSelected,
+  onSelect,
+}: {
+  ac: any;
+  wall?: WallElement;
+  isSelected: boolean;
+  onSelect?: (id: string, type: "acUnit") => void;
+}) {
+  if (ac.type === "split_wall" && wall) {
+    const wallLen = getDistance(wall.start, wall.end);
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const angle = Math.atan2(-dy, dx);
+    const offset = ac.offset || wallLen / 2 - ac.width / 2;
+    const centerOffset = offset + ac.width / 2;
+    const frac = centerOffset / wallLen;
+
+    const posX = (wall.start.x + dx * frac) * SCALE;
+    const posZ = -(wall.start.y + dy * frac) * SCALE;
+    const elevM = (ac.elevation || 2400) * SCALE;
+
+    const wM = ac.width * SCALE;
+    const dM = ac.depth * SCALE;
+    const hM = ac.height * SCALE;
+
+    return (
+      <group position={[posX, elevM + hM / 2, posZ]} rotation={[0, angle, 0]}>
+        <mesh
+          position={[0, 0, (wall.thickness * SCALE) / 2 + dM / 2]}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect?.(ac.id, "acUnit");
+          }}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[wM, hM, dM]} />
+          <meshStandardMaterial
+            color={isSelected ? "#a7f3d0" : "#ffffff"}
+            roughness={0.2}
+            metalness={0.1}
+          />
+        </mesh>
+      </group>
+    );
+  }
+
+  // Ceiling cassette fallback
+  const posX = (ac.x || 0) * SCALE;
+  const posZ = -(ac.y || 0) * SCALE;
+  const wM = (ac.width || 600) * SCALE;
+  const dM = (ac.depth || 600) * SCALE;
+  const elevM = (ac.elevation || 2700) * SCALE;
+
+  return (
+    <group position={[posX, elevM, posZ]}>
+      <mesh
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect?.(ac.id, "acUnit");
+        }}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[wM, 0.05, dM]} />
+        <meshStandardMaterial
+          color={isSelected ? "#a7f3d0" : "#f1f5f9"}
+          roughness={0.3}
+          metalness={0.2}
+        />
+      </mesh>
+    </group>
+  );
+}
+
 export default function BimViewer3D({
   room,
   layerSettings,
@@ -1037,6 +1215,9 @@ export default function BimViewer3D({
   const showElectrical = layerSettings?.electrical?.visible ?? true;
   const showRadiators = layerSettings?.radiators?.visible ?? true;
   const showLighting = layerSettings?.lighting?.visible ?? true;
+  const showBeams = layerSettings?.beams?.visible ?? true;
+  const showChimneys = layerSettings?.chimneys?.visible ?? true;
+  const showACUnits = layerSettings?.acUnits?.visible ?? true;
 
   // Pre-calculate exact 2D mitered/aligned polygon corners for 100% flush 3D joins
   const wallPolygons = useMemo(
@@ -1220,6 +1401,62 @@ export default function BimViewer3D({
                     wallHeightMm={room.walls[0]?.height || 2800}
                     isSelected={!!isSelected}
                     onSelect={(id: string, type: "lighting") => onSelectElement?.(id, type)}
+                  />
+                );
+              })}
+
+            {/* 3D Structural Beams */}
+            {showBeams &&
+              room.beams?.map((beam) => {
+                const isSelected =
+                  (selectedElementType === "beam" && selectedElementId === beam.id) ||
+                  (selectedElementIds && selectedElementIds.includes(beam.id));
+
+                return (
+                  <Beam3DMesh
+                    key={beam.id}
+                    beam={beam}
+                    walls={room.walls}
+                    wallHeightMm={room.walls[0]?.height || 2800}
+                    isSelected={!!isSelected}
+                    onSelect={(id: string, type: "beam") => onSelectElement?.(id, type)}
+                  />
+                );
+              })}
+
+            {/* 3D Chimneys (Bacalar) */}
+            {showChimneys &&
+              room.chimneys?.map((chim) => {
+                const isSelected =
+                  (selectedElementType === "chimney" && selectedElementId === chim.id) ||
+                  (selectedElementIds && selectedElementIds.includes(chim.id));
+
+                return (
+                  <Chimney3DMesh
+                    key={chim.id}
+                    chimney={chim}
+                    wallHeightMm={room.walls[0]?.height || 2800}
+                    isSelected={!!isSelected}
+                    onSelect={(id: string, type: "chimney") => onSelectElement?.(id, type)}
+                  />
+                );
+              })}
+
+            {/* 3D AC Units (Klimalar) */}
+            {showACUnits &&
+              room.acUnits?.map((ac) => {
+                const wall = ac.wallId ? room.walls.find((w) => w.id === ac.wallId) : undefined;
+                const isSelected =
+                  (selectedElementType === "acUnit" && selectedElementId === ac.id) ||
+                  (selectedElementIds && selectedElementIds.includes(ac.id));
+
+                return (
+                  <ACUnit3DFixture
+                    key={ac.id}
+                    ac={ac}
+                    wall={wall}
+                    isSelected={!!isSelected}
+                    onSelect={(id: string, type: "acUnit") => onSelectElement?.(id, type)}
                   />
                 );
               })}

@@ -262,6 +262,45 @@
   color: #fff;
 }
 
+/* Compact Segmented Control (CAD pill toggle) */
+.segmentedControl {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.segmentBtn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--textMuted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.segmentBtn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.segmentBtnActive {
+  background: rgba(41, 245, 126, 0.16) !important;
+  color: var(--accent) !important;
+  border-color: rgba(41, 245, 126, 0.3) !important;
+}
+
 @media (max-width: 768px) {
   .topOverlayBar {
     flex-direction: column;

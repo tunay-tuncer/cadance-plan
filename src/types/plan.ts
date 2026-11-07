@@ -88,6 +88,23 @@ export interface LightFixtureElement {
   label?: string;
 }
 
+export type BeamOrientation = "horizontal" | "vertical";
+export type BeamAlignment = "interior" | "center" | "exterior";
+
+export interface BeamElement {
+  id: string;
+  name?: string; // e.g. "K101"
+  orientation: BeamOrientation; // "horizontal" (runs along X) or "vertical" (runs along Y)
+  x: number; // reference position in CAD mm (centerline or alignment edge)
+  y: number; // reference position in CAD mm (centerline or alignment edge)
+  width: number; // beam width / thickness in mm (e.g. 250, 300)
+  depth: number; // beam depth / height hanging down in mm (e.g. 500, 600)
+  alignment: BeamAlignment; // "interior" | "center" | "exterior"
+  spanStart?: number; // optional offset in mm from start bounding wall
+  spanEnd?: number;   // optional offset in mm from end bounding wall
+  label?: string;
+}
+
 export interface SlabElement {
   id: string;
   boundary: Point2D[];
@@ -116,10 +133,42 @@ export interface LayerSettings {
   electrical: LayerVisibility;
   radiators: LayerVisibility;
   lighting: LayerVisibility;
+  beams?: LayerVisibility;
+  chimneys?: LayerVisibility;
+  acUnits?: LayerVisibility;
   slab: LayerVisibility;
   ceiling: LayerVisibility;
   dimensions: LayerVisibility;
   roomTags: LayerVisibility;
+}
+
+export interface ChimneyElement {
+  id: string;
+  name?: string; // e.g. "B1"
+  x: number; // center or reference X in mm
+  y: number; // center or reference Y in mm
+  width: number; // mm (e.g. 400, 500)
+  depth: number; // mm (e.g. 400, 500)
+  flueDiameter?: number; // inner smoke channel mm (e.g. 150, 200)
+  wallId?: string; // optional parent/snap wall
+  distWall?: number;
+}
+
+export type ACType = "split_wall" | "ceiling_cassette" | "ducted";
+
+export interface ACUnitElement {
+  id: string;
+  name?: string; // e.g. "KLIMA-1"
+  type: ACType;
+  wallId?: string; // for wall-mounted split
+  offset?: number; // mm along wall
+  elevation?: number; // mm from floor, default 2400
+  x?: number; // for cassette / ceiling in mm
+  y?: number;
+  width: number; // mm (e.g. 900)
+  depth: number; // mm (e.g. 250)
+  height: number; // mm (e.g. 300)
+  capacityBtu?: number; // e.g. 9000, 12000, 18000, 24000
 }
 
 export const DEFAULT_LAYER_SETTINGS: LayerSettings = {
@@ -129,6 +178,9 @@ export const DEFAULT_LAYER_SETTINGS: LayerSettings = {
   electrical: { visible: true, locked: false },
   radiators: { visible: true, locked: false },
   lighting: { visible: true, locked: false },
+  beams: { visible: true, locked: false },
+  chimneys: { visible: true, locked: false },
+  acUnits: { visible: true, locked: false },
   slab: { visible: true, locked: false },
   ceiling: { visible: true, locked: false },
   dimensions: { visible: true, locked: false },
@@ -152,6 +204,9 @@ export interface RoomPlanItem {
   electrical?: ElectricalElement[];
   radiators?: RadiatorElement[];
   lighting?: LightFixtureElement[];
+  beams?: BeamElement[];
+  chimneys?: ChimneyElement[];
+  acUnits?: ACUnitElement[];
   slab?: SlabElement;
   ceiling?: CeilingElement;
   layerSettings?: LayerSettings;

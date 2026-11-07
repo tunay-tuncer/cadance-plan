@@ -16,6 +16,9 @@ import {
   MdPower,
   MdWhatshot,
   MdLightbulb,
+  MdArchitecture,
+  MdLocalFireDepartment,
+  MdAcUnit,
 } from "react-icons/md";
 import styles from "./SurveyorControlBar.module.css";
 
@@ -28,9 +31,12 @@ interface SurveyorControlBarProps {
   onCloseRoom: () => void;
   onOpenAddDoorModal: () => void;
   onOpenAddWindowModal: () => void;
+  onOpenAddBeamModal?: () => void;
   onOpenAddElectricalModal?: () => void;
   onOpenAddRadiatorModal?: () => void;
   onOpenAddLightModal?: () => void;
+  onOpenAddChimneyModal?: () => void;
+  onOpenAddACModal?: () => void;
   onReopenPerimeter: () => void;
   isNearOrigin?: boolean;
   onFlipLastWall?: () => void;
@@ -43,9 +49,12 @@ export default function SurveyorControlBar({
   onCloseRoom,
   onOpenAddDoorModal,
   onOpenAddWindowModal,
+  onOpenAddBeamModal,
   onOpenAddElectricalModal,
   onOpenAddRadiatorModal,
   onOpenAddLightModal,
+  onOpenAddChimneyModal,
+  onOpenAddACModal,
   onReopenPerimeter,
   isNearOrigin = false,
   onFlipLastWall,
@@ -98,6 +107,18 @@ export default function SurveyorControlBar({
               <span>+ Pencere</span>
             </button>
 
+            {onOpenAddBeamModal && (
+              <button
+                type="button"
+                className={styles.actionBtnSecondary}
+                onClick={onOpenAddBeamModal}
+                title="Yatay veya dikey taşıyıcı kiriş ekle"
+              >
+                <MdArchitecture size={16} color="#c084fc" />
+                <span>+ Kiriş</span>
+              </button>
+            )}
+
             {onOpenAddElectricalModal && (
               <button
                 type="button"
@@ -128,6 +149,30 @@ export default function SurveyorControlBar({
               >
                 <MdLightbulb size={16} color="#fbbf24" />
                 <span>+ Aydınlatma</span>
+              </button>
+            )}
+
+            {onOpenAddChimneyModal && (
+              <button
+                type="button"
+                className={styles.actionBtnSecondary}
+                onClick={onOpenAddChimneyModal}
+                title="Şömine / Havalandırma Bacası Ekle"
+              >
+                <MdLocalFireDepartment size={16} color="#ea580c" />
+                <span>+ Baca</span>
+              </button>
+            )}
+
+            {onOpenAddACModal && (
+              <button
+                type="button"
+                className={styles.actionBtnSecondary}
+                onClick={onOpenAddACModal}
+                title="Klima Ünitesi Ekle"
+              >
+                <MdAcUnit size={16} color="#06b6d4" />
+                <span>+ Klima</span>
               </button>
             )}
 
@@ -236,10 +281,10 @@ export default function SurveyorControlBar({
             <div className={styles.mmInputWrapper}>
               <input
                 type="number"
-                min="10"
                 step="5"
-                value={wallLength}
-                onChange={(e) => setWallLength(Math.max(0, Number(e.target.value) || 0))}
+                value={wallLength || ""}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setWallLength(e.target.value === "" ? 0 : Number(e.target.value))}
                 className={styles.mmInput}
               />
               <span className={styles.unitSuffix}>cm</span>

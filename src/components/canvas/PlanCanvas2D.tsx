@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
-import type { RoomPlanItem, Point2D, LayerSettings, WallElement } from "@/types/plan";
+import type { RoomPlanItem, Point2D, LayerSettings, WallElement, BeamElement, ChimneyElement, ACUnitElement } from "@/types/plan";
 import {
   getDistance,
   getUnitVector,
@@ -12,6 +12,8 @@ import {
   getWallExteriorNormal,
   getNearestPointOnSegment,
   calculateLightFourWayDimensions,
+  computeBeamGeometry,
+  isPointInPolygon,
 } from "@/lib/cad/geometry";
 import {
   MdCenterFocusStrong,
@@ -26,16 +28,19 @@ interface PlanCanvas2DProps {
   room: RoomPlanItem;
   activePoint: Point2D;
   selectedElementId: string | null;
-  selectedElementType: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null;
+  selectedElementType: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null;
   selectedElementIds?: string[];
-  onSelectElement: (id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null) => void;
+  onSelectElement: (id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null) => void;
   onSelectMultiple?: (ids: string[]) => void;
-  onChangeElementOffset?: (elementId: string, type: "door" | "window" | "electrical" | "radiator", newOffsetMm: number) => void;
+  onChangeElementOffset?: (elementId: string, type: "door" | "window" | "electrical" | "radiator" | "acUnit", newOffsetMm: number) => void;
   onChangeLightPosition?: (lightId: string, newX: number, newY: number) => void;
+  onChangeBeamPosition?: (beamId: string, updates: Partial<BeamElement>) => void;
+  onChangeChimneyPosition?: (chimneyId: string, newX: number, newY: number) => void;
+  onChangeACUnitPosition?: (acId: string, updates: Partial<ACUnitElement>) => void;
   onSetActivePoint?: (pt: Point2D) => void;
   layerSettings?: LayerSettings;
-  placingOpening?: "door" | "window" | "electrical" | "radiator" | null;
-  onSelectWallForOpening?: (wallId: string, offsetMm: number, type: "door" | "window" | "electrical" | "radiator") => void;
+  placingOpening?: "door" | "window" | "electrical" | "radiator" | "acUnit" | null;
+  onSelectWallForOpening?: (wallId: string, offsetMm: number, type: "door" | "window" | "electrical" | "radiator" | "acUnit") => void;
   onCancelPlacingOpening?: () => void;
 }
 
@@ -44,14 +49,16 @@ interface TempDimHitbox {
   maxX: number;
   minY: number;
   maxY: number;
-  kind: "wallOffset" | "lightCoord";
+  kind: "wallOffset" | "lightCoord" | "beamCoord" | "chimneyCoord";
   elementId?: string;
-  elementType?: "door" | "window" | "electrical" | "radiator";
+  elementType?: "door" | "window" | "electrical" | "radiator" | "beam" | "chimney" | "acUnit";
   isStartDim?: boolean;
   currentVal?: number;
   wallLen?: number;
   elementWidth?: number;
   lightId?: string;
+  beamId?: string;
+  chimneyId?: string;
   direction?: "up" | "down" | "left" | "right";
   wallHitCoord?: number;
 }
@@ -66,6 +73,9 @@ export default function PlanCanvas2D({
   onSelectMultiple,
   onChangeElementOffset,
   onChangeLightPosition,
+  onChangeBeamPosition,
+  onChangeChimneyPosition,
+  onChangeACUnitPosition,
   onSetActivePoint,
   layerSettings,
   placingOpening,
@@ -540,29 +550,33 @@ export default function PlanCanvas2D({
 
         if (door.doorType === "sliding") {
           // Architectural Sliding Pocket / Patio Door symbol
+          // Realistic parallel multi-track sliding panels with clean clearance and no overlap collision
           const numSegs = Math.max(2, Math.min(4, door.slidingSegments || 2));
           const clearW = door.width - jambW * 2;
-          const segW = (clearW / numSegs) * 1.15;
-          const panelThick = 35;
-          const trackGap = 16;
+          const panelW = clearW / numSegs;
+          const panelThick = Math.min(30, (wThick * 0.28) / (numSegs === 2 ? 1.5 : numSegs * 0.8));
+          const totalTrackSpread = Math.min(wThick * 0.5, 60);
+          const trackSpacing = numSegs > 1 ? totalTrackSpread / (numSegs - 1) : 0;
+          const midTrackOffset = (innerOffset + outerOffset) / 2;
 
           for (let sIdx = 0; sIdx < numSegs; sIdx++) {
-            const segStartX = pA.x + u.x * (jambW + (sIdx * (clearW - segW)) / (numSegs - 1 || 1));
-            const segStartY = pA.y + u.y * (jambW + (sIdx * (clearW - segW)) / (numSegs - 1 || 1));
-            const trackSign = sIdx % 2 === 0 ? -1 : 1;
-            const trackOffset = (innerOffset + outerOffset) / 2 + trackSign * (trackGap / 2);
+            // Consecutive panels staggered along the opening
+            const segStartX = pA.x + u.x * (jambW + sIdx * panelW);
+            const segStartY = pA.y + u.y * (jambW + sIdx * panelW);
+            // Parallel distinct track rails (interior to exterior)
+            const trackOffset = midTrackOffset - totalTrackSpread / 2 + sIdx * trackSpacing;
 
             const pS1 = {
               x: segStartX + nExt.x * (trackOffset - panelThick / 2),
               y: segStartY + nExt.y * (trackOffset - panelThick / 2),
             };
             const pS2 = {
-              x: segStartX + u.x * segW + nExt.x * (trackOffset - panelThick / 2),
-              y: segStartY + u.y * segW + nExt.y * (trackOffset - panelThick / 2),
+              x: segStartX + u.x * panelW + nExt.x * (trackOffset - panelThick / 2),
+              y: segStartY + u.y * panelW + nExt.y * (trackOffset - panelThick / 2),
             };
             const pS3 = {
-              x: segStartX + u.x * segW + nExt.x * (trackOffset + panelThick / 2),
-              y: segStartY + u.y * segW + nExt.y * (trackOffset + panelThick / 2),
+              x: segStartX + u.x * panelW + nExt.x * (trackOffset + panelThick / 2),
+              y: segStartY + u.y * panelW + nExt.y * (trackOffset + panelThick / 2),
             };
             const pS4 = {
               x: segStartX + nExt.x * (trackOffset + panelThick / 2),
@@ -576,7 +590,7 @@ export default function PlanCanvas2D({
 
             ctx.fillStyle = isSelected ? "rgba(41, 245, 126, 0.35)" : "rgba(250, 204, 21, 0.22)";
             ctx.strokeStyle = isSelected ? "#29f57e" : "#facc15";
-            ctx.lineWidth = 1.3;
+            ctx.lineWidth = 1.4;
 
             ctx.beginPath();
             ctx.moveTo(sS1.x, sS1.y);
@@ -587,17 +601,17 @@ export default function PlanCanvas2D({
             ctx.fill();
             ctx.stroke();
 
-            // Arrow on sliding panel indicating movement
+            // Directional arrow on sliding panel
             const midX = (sS1.x + sS2.x) / 2;
             const midY = (sS1.y + sS2.y) / 2;
-            const arrowDir = sIdx === 0 ? 1 : -1;
+            const arrowDir = sIdx % 2 === 0 ? 1 : -1;
             const lenP = Math.hypot(sS2.x - sS1.x, sS2.y - sS1.y) || 1;
             const scrU = { x: (sS2.x - sS1.x) / lenP, y: (sS2.y - sS1.y) / lenP };
             ctx.strokeStyle = isSelected ? "#29f57e" : "#eab308";
-            ctx.lineWidth = 1.4;
+            ctx.lineWidth = 1.3;
             ctx.beginPath();
-            ctx.moveTo(midX - scrU.x * 7 * arrowDir, midY - scrU.y * 7 * arrowDir);
-            ctx.lineTo(midX + scrU.x * 7 * arrowDir, midY + scrU.y * 7 * arrowDir);
+            ctx.moveTo(midX - scrU.x * 6 * arrowDir, midY - scrU.y * 6 * arrowDir);
+            ctx.lineTo(midX + scrU.x * 6 * arrowDir, midY + scrU.y * 6 * arrowDir);
             ctx.stroke();
           }
         } else {
@@ -696,15 +710,46 @@ export default function PlanCanvas2D({
         const p1World = { x: wall.start.x + u.x * win.offset, y: wall.start.y + u.y * win.offset };
         const p2World = { x: p1World.x + u.x * win.width, y: p1World.y + u.y * win.width };
 
+        // 1. Exterior Window Sill (Denizlik) - Projects 40mm outwards and 30mm sideways beyond the wall opening
+        const sillProjection = 40;
+        const sillEar = 30;
+        const sSill1 = worldToScreen(p1World.x - u.x * sillEar + nExt.x * outerOffset, p1World.y - u.y * sillEar + nExt.y * outerOffset, cW, cH);
+        const sSill2 = worldToScreen(p2World.x + u.x * sillEar + nExt.x * outerOffset, p2World.y + u.y * sillEar + nExt.y * outerOffset, cW, cH);
+        const sSill3 = worldToScreen(p2World.x + u.x * sillEar + nExt.x * (outerOffset + sillProjection), p2World.y + u.y * sillEar + nExt.y * (outerOffset + sillProjection), cW, cH);
+        const sSill4 = worldToScreen(p1World.x - u.x * sillEar + nExt.x * (outerOffset + sillProjection), p1World.y - u.y * sillEar + nExt.y * (outerOffset + sillProjection), cW, cH);
+
+        ctx.fillStyle = isSelected ? "rgba(56, 189, 248, 0.25)" : "rgba(30, 41, 59, 0.9)";
+        ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(148, 163, 184, 0.85)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(sSill1.x, sSill1.y);
+        ctx.lineTo(sSill2.x, sSill2.y);
+        ctx.lineTo(sSill3.x, sSill3.y);
+        ctx.lineTo(sSill4.x, sSill4.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 2. Interior Stool Line (İç denizlik çıtası)
+        const stoolProjection = 15;
+        const sStool1 = worldToScreen(p1World.x + nExt.x * (innerOffset - stoolProjection), p1World.y + nExt.y * (innerOffset - stoolProjection), cW, cH);
+        const sStool2 = worldToScreen(p2World.x + nExt.x * (innerOffset - stoolProjection), p2World.y + nExt.y * (innerOffset - stoolProjection), cW, cH);
+        ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(148, 163, 184, 0.5)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sStool1.x, sStool1.y);
+        ctx.lineTo(sStool2.x, sStool2.y);
+        ctx.stroke();
+
+        // 3. Window Wall Cavity Opening
         const c1 = worldToScreen(p1World.x + nExt.x * innerOffset, p1World.y + nExt.y * innerOffset, cW, cH);
         const c2 = worldToScreen(p2World.x + nExt.x * innerOffset, p2World.y + nExt.y * innerOffset, cW, cH);
         const c3 = worldToScreen(p2World.x + nExt.x * outerOffset, p2World.y + nExt.y * outerOffset, cW, cH);
         const c4 = worldToScreen(p1World.x + nExt.x * outerOffset, p1World.y + nExt.y * outerOffset, cW, cH);
 
-        // Window Cutout & Frame
-        ctx.fillStyle = isSelected ? "rgba(56, 189, 248, 0.35)" : "rgba(15, 23, 42, 0.9)";
+        ctx.fillStyle = isSelected ? "rgba(56, 189, 248, 0.2)" : "rgba(10, 15, 26, 0.95)";
         ctx.strokeStyle = isSelected ? "#29f57e" : "#38bdf8";
-        ctx.lineWidth = isSelected ? 2.5 : 1.5;
+        ctx.lineWidth = isSelected ? 2.2 : 1.4;
 
         ctx.beginPath();
         ctx.moveTo(c1.x, c1.y);
@@ -715,29 +760,82 @@ export default function PlanCanvas2D({
         ctx.fill();
         ctx.stroke();
 
-        // Center glass line
-        const midOffset = (innerOffset + outerOffset) / 2;
-        const g1 = worldToScreen(p1World.x + nExt.x * midOffset, p1World.y + nExt.y * midOffset, cW, cH);
-        const g2 = worldToScreen(p2World.x + nExt.x * midOffset, p2World.y + nExt.y * midOffset, cW, cH);
-        ctx.strokeStyle = isSelected ? "#ffffff" : "#7dd3fc";
-        ctx.lineWidth = 1.5;
+        // 4. Left and Right Architectural Jamb Casings (Yan söveler / Kasa)
+        const jambW = Math.min(50, win.width * 0.08);
+        const jL1 = c1;
+        const jL2 = worldToScreen(p1World.x + u.x * jambW + nExt.x * innerOffset, p1World.y + u.y * jambW + nExt.y * innerOffset, cW, cH);
+        const jL3 = worldToScreen(p1World.x + u.x * jambW + nExt.x * outerOffset, p1World.y + u.y * jambW + nExt.y * outerOffset, cW, cH);
+        const jL4 = c4;
+
+        const jR1 = worldToScreen(p2World.x - u.x * jambW + nExt.x * innerOffset, p2World.y - u.y * jambW + nExt.y * innerOffset, cW, cH);
+        const jR2 = c2;
+        const jR3 = c3;
+        const jR4 = worldToScreen(p2World.x - u.x * jambW + nExt.x * outerOffset, p2World.y - u.y * jambW + nExt.y * outerOffset, cW, cH);
+
+        ctx.fillStyle = isSelected ? "rgba(41, 245, 126, 0.35)" : "rgba(30, 41, 59, 0.95)";
+        ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(56, 189, 248, 0.8)";
+        ctx.lineWidth = 1;
+
+        // Left jamb
         ctx.beginPath();
-        ctx.moveTo(g1.x, g1.y);
-        ctx.lineTo(g2.x, g2.y);
+        ctx.moveTo(jL1.x, jL1.y);
+        ctx.lineTo(jL2.x, jL2.y);
+        ctx.lineTo(jL3.x, jL3.y);
+        ctx.lineTo(jL4.x, jL4.y);
+        ctx.closePath();
+        ctx.fill();
         ctx.stroke();
 
-        // Division Mullions (1, 2, 3, 4 panels)
+        // Right jamb
+        ctx.beginPath();
+        ctx.moveTo(jR1.x, jR1.y);
+        ctx.lineTo(jR2.x, jR2.y);
+        ctx.lineTo(jR3.x, jR3.y);
+        ctx.lineTo(jR4.x, jR4.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 5. Dual Glazing Pane Lines (Çift Cam / Isıcam)
+        const midOffset = (innerOffset + outerOffset) / 2;
+        const glassGap = 16;
+        const g1A = worldToScreen(p1World.x + u.x * jambW + nExt.x * (midOffset - glassGap / 2), p1World.y + u.y * jambW + nExt.y * (midOffset - glassGap / 2), cW, cH);
+        const g2A = worldToScreen(p2World.x - u.x * jambW + nExt.x * (midOffset - glassGap / 2), p2World.y - u.y * jambW + nExt.y * (midOffset - glassGap / 2), cW, cH);
+        const g1B = worldToScreen(p1World.x + u.x * jambW + nExt.x * (midOffset + glassGap / 2), p1World.y + u.y * jambW + nExt.y * (midOffset + glassGap / 2), cW, cH);
+        const g2B = worldToScreen(p2World.x - u.x * jambW + nExt.x * (midOffset + glassGap / 2), p2World.y - u.y * jambW + nExt.y * (midOffset + glassGap / 2), cW, cH);
+
+        ctx.strokeStyle = isSelected ? "#ffffff" : "#38bdf8";
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(g1A.x, g1A.y);
+        ctx.lineTo(g2A.x, g2A.y);
+        ctx.moveTo(g1B.x, g1B.y);
+        ctx.lineTo(g2B.x, g2B.y);
+        ctx.stroke();
+
+        // 6. Architectural Division Mullions / Sashes (Kayıtlar)
         const segs = win.segments || (win.windowType === "sliding" ? 2 : 1);
+        const clearOpeningW = win.width - jambW * 2;
         if (segs > 1) {
-          ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(255, 255, 255, 0.6)";
+          ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(224, 242, 254, 0.85)";
           ctx.lineWidth = 1.5;
+          const mullionThick = 24;
           for (let s = 1; s < segs; s++) {
-            const frac = s / segs;
-            const m1 = worldToScreen(p1World.x + u.x * (win.width * frac) + nExt.x * innerOffset, p1World.y + u.y * (win.width * frac) + nExt.y * innerOffset, cW, cH);
-            const m2 = worldToScreen(p1World.x + u.x * (win.width * frac) + nExt.x * outerOffset, p1World.y + u.y * (win.width * frac) + nExt.y * outerOffset, cW, cH);
+            const mFrac = s / segs;
+            const mCenter = jambW + clearOpeningW * mFrac;
+            const mA1 = worldToScreen(p1World.x + u.x * (mCenter - mullionThick / 2) + nExt.x * innerOffset, p1World.y + u.y * (mCenter - mullionThick / 2) + nExt.y * innerOffset, cW, cH);
+            const mA2 = worldToScreen(p1World.x + u.x * (mCenter + mullionThick / 2) + nExt.x * innerOffset, p1World.y + u.y * (mCenter + mullionThick / 2) + nExt.y * innerOffset, cW, cH);
+            const mA3 = worldToScreen(p1World.x + u.x * (mCenter + mullionThick / 2) + nExt.x * outerOffset, p1World.y + u.y * (mCenter + mullionThick / 2) + nExt.y * outerOffset, cW, cH);
+            const mA4 = worldToScreen(p1World.x + u.x * (mCenter - mullionThick / 2) + nExt.x * outerOffset, p1World.y + u.y * (mCenter - mullionThick / 2) + nExt.y * outerOffset, cW, cH);
+
+            ctx.fillStyle = isSelected ? "rgba(41, 245, 126, 0.4)" : "rgba(30, 41, 59, 0.95)";
             ctx.beginPath();
-            ctx.moveTo(m1.x, m1.y);
-            ctx.lineTo(m2.x, m2.y);
+            ctx.moveTo(mA1.x, mA1.y);
+            ctx.lineTo(mA2.x, mA2.y);
+            ctx.lineTo(mA3.x, mA3.y);
+            ctx.lineTo(mA4.x, mA4.y);
+            ctx.closePath();
+            ctx.fill();
             ctx.stroke();
           }
         }
@@ -1436,6 +1534,426 @@ export default function PlanCanvas2D({
       });
     }
 
+    // 8b. Draw Structural Beams (Kirişler) with Architectural Dashed Lines & Live 4-Way Wall Dimensions
+    const showBeams = layerSettings?.beams?.visible ?? true;
+    if (showBeams && room.beams && room.beams.length > 0) {
+      room.beams.forEach((beam) => {
+        const isSelected =
+          (selectedElementId === beam.id && selectedElementType === "beam") ||
+          (selectedElementIds && selectedElementIds.includes(beam.id));
+
+        const geo = computeBeamGeometry(beam, room.walls);
+        const polyScreen = geo.polygon.map((p) => worldToScreen(p.x, p.y, cW, cH));
+
+        // 1. Draw dashed beam outline & architectural fill
+        ctx.fillStyle = isSelected ? "rgba(41, 245, 126, 0.12)" : "rgba(192, 132, 252, 0.08)";
+        ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(192, 132, 252, 0.85)";
+        ctx.lineWidth = isSelected ? 2.2 : 1.5;
+        ctx.setLineDash([8, 6]);
+
+        ctx.beginPath();
+        polyScreen.forEach((sp, idx) => {
+          if (idx === 0) ctx.moveTo(sp.x, sp.y);
+          else ctx.lineTo(sp.x, sp.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 2. Draw beam label badge (e.g. K101 25/50)
+        const sCenter = worldToScreen(geo.center.x, geo.center.y, cW, cH);
+        const labelText = `${beam.name || "Kiriş"} (${Math.round(beam.width / 10)}x${Math.round(beam.depth / 10)})`;
+        ctx.font = "bold 9px Montserrat, sans-serif";
+        const lMetrics = ctx.measureText(labelText);
+        const lw = lMetrics.width + 10;
+        const lh = 16;
+        ctx.fillStyle = "rgba(18, 18, 24, 0.9)";
+        ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(192, 132, 252, 0.6)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(sCenter.x - lw / 2, sCenter.y - lh / 2, lw, lh, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = isSelected ? "#29f57e" : "#e9d5ff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(labelText, sCenter.x, sCenter.y);
+
+        // 3. Dynamic 4-Directional Dimension Lines to Surrounding Walls (Üst, Alt, Sol, Sağ)
+        // ONLY RENDER WHEN SELECTED TO PREVENT CLUTTER!
+        if (isSelected && room.walls.length >= 3) {
+          const dims4 = geo.dimensions;
+          const entries: {
+            key: "up" | "down" | "left" | "right";
+            data: { distanceMm: number; point: Point2D; wallId: string } | null;
+            isVertical: boolean;
+            startPt: Point2D;
+          }[] = [
+            { key: "up", data: dims4.up, isVertical: true, startPt: { x: geo.center.x, y: geo.bounds.maxY } },
+            { key: "down", data: dims4.down, isVertical: true, startPt: { x: geo.center.x, y: geo.bounds.minY } },
+            { key: "left", data: dims4.left, isVertical: false, startPt: { x: geo.bounds.minX, y: geo.center.y } },
+            { key: "right", data: dims4.right, isVertical: false, startPt: { x: geo.bounds.maxX, y: geo.center.y } },
+          ];
+
+          entries.forEach(({ key, data, isVertical, startPt }) => {
+            if (!data) return;
+            const sStart = worldToScreen(startPt.x, startPt.y, cW, cH);
+            const sProj = worldToScreen(data.point.x, data.point.y, cW, cH);
+            const distCm = Math.round(data.distanceMm / 10);
+
+            // Witness Line (dashed)
+            ctx.strokeStyle = "rgba(41, 245, 126, 0.9)";
+            ctx.lineWidth = 1.4;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(sStart.x, sStart.y);
+            ctx.lineTo(sProj.x, sProj.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Wall T-Tick Marker
+            ctx.strokeStyle = "#29f57e";
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            const tick = 5;
+            if (isVertical) {
+              ctx.moveTo(sProj.x - tick, sProj.y);
+              ctx.lineTo(sProj.x + tick, sProj.y);
+            } else {
+              ctx.moveTo(sProj.x, sProj.y - tick);
+              ctx.lineTo(sProj.x, sProj.y + tick);
+            }
+            ctx.stroke();
+
+            // Distance Pill Badge
+            const midDimX = (sStart.x + sProj.x) / 2;
+            const midDimY = (sStart.y + sProj.y) / 2;
+            ctx.font = "bold 9px Montserrat, sans-serif";
+            const badgeText = `${distCm} cm ✎`;
+            const bMetrics = ctx.measureText(badgeText);
+            const bW = bMetrics.width + 12;
+            const bH = 18;
+            ctx.fillStyle = "rgba(13, 13, 18, 0.95)";
+            ctx.strokeStyle = "#29f57e";
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.roundRect(midDimX - bW / 2, midDimY - bH / 2, bW, bH, 5);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#29f57e";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(badgeText, midDimX, midDimY);
+
+            tempDimHitboxesRef.current.push({
+              minX: midDimX - bW / 2 - 4,
+              maxX: midDimX + bW / 2 + 4,
+              minY: midDimY - bH / 2 - 4,
+              maxY: midDimY + bH / 2 + 4,
+              kind: "beamCoord",
+              beamId: beam.id,
+              direction: key,
+              wallHitCoord: isVertical ? data.point.y : data.point.x,
+              currentVal: data.distanceMm,
+            });
+          });
+        }
+      });
+    }
+
+    // 8c. Draw Chimneys (Bacalar) with Architectural X Diagonal Cross & Smoke Flue Duct
+    const showChimneys = layerSettings?.chimneys?.visible ?? true;
+    if (showChimneys && room.chimneys && room.chimneys.length > 0) {
+      room.chimneys.forEach((chim) => {
+        const isSelected =
+          (selectedElementId === chim.id && selectedElementType === "chimney") ||
+          (selectedElementIds && selectedElementIds.includes(chim.id));
+
+        const w = chim.width || 400;
+        const d = chim.depth || 400;
+        const halfW = w / 2;
+        const halfD = d / 2;
+
+        const pC1 = { x: chim.x - halfW, y: chim.y - halfD };
+        const pC2 = { x: chim.x + halfW, y: chim.y - halfD };
+        const pC3 = { x: chim.x + halfW, y: chim.y + halfD };
+        const pC4 = { x: chim.x - halfW, y: chim.y + halfD };
+
+        const sC1 = worldToScreen(pC1.x, pC1.y, cW, cH);
+        const sC2 = worldToScreen(pC2.x, pC2.y, cW, cH);
+        const sC3 = worldToScreen(pC3.x, pC3.y, cW, cH);
+        const sC4 = worldToScreen(pC4.x, pC4.y, cW, cH);
+        const sCenter = worldToScreen(chim.x, chim.y, cW, cH);
+
+        // 1. Masonry Box Body
+        ctx.fillStyle = isSelected ? "rgba(41, 245, 126, 0.25)" : "rgba(30, 41, 59, 0.9)";
+        ctx.strokeStyle = isSelected ? "#29f57e" : "#ea580c";
+        ctx.lineWidth = isSelected ? 2.5 : 1.6;
+
+        ctx.beginPath();
+        ctx.moveTo(sC1.x, sC1.y);
+        ctx.lineTo(sC2.x, sC2.y);
+        ctx.lineTo(sC3.x, sC3.y);
+        ctx.lineTo(sC4.x, sC4.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 2. Architectural Standard Diagonal X Hatching (Baca Çaprazı)
+        ctx.strokeStyle = isSelected ? "rgba(41, 245, 126, 0.85)" : "rgba(234, 88, 12, 0.65)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(sC1.x, sC1.y);
+        ctx.lineTo(sC3.x, sC3.y);
+        ctx.moveTo(sC2.x, sC2.y);
+        ctx.lineTo(sC4.x, sC4.y);
+        ctx.stroke();
+
+        // 3. Smoke Flue Duct Channel (Merkez Baca Deliği)
+        const flueDia = chim.flueDiameter || Math.min(w, d) * 0.45;
+        const flueRadPx = (flueDia / 2) * zoom;
+        ctx.fillStyle = isSelected ? "#29f57e" : "#ea580c";
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(sCenter.x, sCenter.y, Math.max(3, flueRadPx), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // 4. Label Badge (e.g. BACA 40x40)
+        const labelText = `${chim.name || "BACA"} (${Math.round(w / 10)}x${Math.round(d / 10)})`;
+        ctx.font = "bold 9px Montserrat, sans-serif";
+        const lMetrics = ctx.measureText(labelText);
+        const lw = lMetrics.width + 10;
+        const lh = 16;
+        ctx.fillStyle = "rgba(18, 18, 24, 0.92)";
+        ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(234, 88, 12, 0.6)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(sCenter.x - lw / 2, sC1.y - lh - 4, lw, lh, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = isSelected ? "#29f57e" : "#fdba74";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(labelText, sCenter.x, sC1.y - 4 - lh / 2);
+
+        // 5. 4-Way Distance Dimensions when Selected
+        if (isSelected && room.walls.length >= 3) {
+          const dims = calculateLightFourWayDimensions({ x: chim.x, y: chim.y }, room.walls);
+          const directions: Array<"up" | "down" | "left" | "right"> = ["up", "down", "left", "right"];
+
+          directions.forEach((key) => {
+            const data = dims[key];
+            if (!data) return;
+
+            const sProj = worldToScreen(data.point.x, data.point.y, cW, cH);
+            const distCm = Math.round(data.distanceMm / 10);
+            const isVertical = key === "up" || key === "down";
+
+            // Witness Line (dashed)
+            ctx.strokeStyle = "rgba(41, 245, 126, 0.85)";
+            ctx.lineWidth = 1.4;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(sCenter.x, sCenter.y);
+            ctx.lineTo(sProj.x, sProj.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Wall T-Tick Marker
+            ctx.strokeStyle = "#29f57e";
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            const tick = 5;
+            if (isVertical) {
+              ctx.moveTo(sProj.x - tick, sProj.y);
+              ctx.lineTo(sProj.x + tick, sProj.y);
+            } else {
+              ctx.moveTo(sProj.x, sProj.y - tick);
+              ctx.lineTo(sProj.x, sProj.y + tick);
+            }
+            ctx.stroke();
+
+            // Distance Pill Badge
+            const midDimX = (sCenter.x + sProj.x) / 2;
+            const midDimY = (sCenter.y + sProj.y) / 2;
+            ctx.font = "bold 9px Montserrat, sans-serif";
+            const badgeText = `${distCm} cm ✎`;
+            const bMetrics = ctx.measureText(badgeText);
+            const bW = bMetrics.width + 12;
+            const bH = 18;
+            ctx.fillStyle = "rgba(13, 13, 18, 0.95)";
+            ctx.strokeStyle = "#29f57e";
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.roundRect(midDimX - bW / 2, midDimY - bH / 2, bW, bH, 5);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#29f57e";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(badgeText, midDimX, midDimY);
+
+            tempDimHitboxesRef.current.push({
+              minX: midDimX - bW / 2 - 4,
+              maxX: midDimX + bW / 2 + 4,
+              minY: midDimY - bH / 2 - 4,
+              maxY: midDimY + bH / 2 + 4,
+              kind: "chimneyCoord",
+              chimneyId: chim.id,
+              direction: key,
+              wallHitCoord: isVertical ? data.point.y : data.point.x,
+              currentVal: data.distanceMm,
+            });
+          });
+        }
+      });
+    }
+
+    // 8d. Draw Air Conditioning Units (Klimalar)
+    const showAC = layerSettings?.acUnits?.visible ?? true;
+    if (showAC && room.acUnits && room.acUnits.length > 0) {
+      const roomPoints = room.walls.map((w) => w.start);
+      if (room.walls.length > 0) roomPoints.push(room.walls[room.walls.length - 1].end);
+      const orientation = getPolygonOrientation(roomPoints);
+
+      room.acUnits.forEach((ac) => {
+        const isSelected =
+          (selectedElementId === ac.id && selectedElementType === "acUnit") ||
+          (selectedElementIds && selectedElementIds.includes(ac.id));
+
+        const acColor = isSelected ? "#29f57e" : "#06b6d4";
+
+        if (ac.type === "split_wall" && ac.wallId) {
+          const wall = room.walls.find((w) => w.id === ac.wallId);
+          if (!wall) return;
+
+          const u = getUnitVector(wall.start, wall.end);
+          const nExt = getWallExteriorNormal(wall, orientation);
+          const nInt = { x: -nExt.x, y: -nExt.y };
+          const wThick = wall.thickness || 150;
+          const align = wall.alignment || "interior";
+
+          let innerDist = 0;
+          if (align === "center") innerDist = -wThick / 2;
+          else if (align === "exterior") innerDist = -wThick;
+
+          const wallLen = getDistance(wall.start, wall.end);
+          const acOffset = ac.offset || wallLen / 2 - ac.width / 2;
+          const p1 = {
+            x: wall.start.x + u.x * acOffset + nExt.x * innerDist,
+            y: wall.start.y + u.y * acOffset + nExt.y * innerDist,
+          };
+          const p2 = { x: p1.x + u.x * ac.width, y: p1.y + u.y * ac.width };
+          const p3 = { x: p2.x + nInt.x * ac.depth, y: p2.y + nInt.y * ac.depth };
+          const p4 = { x: p1.x + nInt.x * ac.depth, y: p1.y + nInt.y * ac.depth };
+
+          const s1 = worldToScreen(p1.x, p1.y, cW, cH);
+          const s2 = worldToScreen(p2.x, p2.y, cW, cH);
+          const s3 = worldToScreen(p3.x, p3.y, cW, cH);
+          const s4 = worldToScreen(p4.x, p4.y, cW, cH);
+
+          // AC Wall Unit Body
+          ctx.fillStyle = isSelected ? "rgba(41, 245, 126, 0.28)" : "rgba(6, 182, 212, 0.18)";
+          ctx.strokeStyle = acColor;
+          ctx.lineWidth = isSelected ? 2.5 : 1.6;
+
+          ctx.beginPath();
+          ctx.moveTo(s1.x, s1.y);
+          ctx.lineTo(s2.x, s2.y);
+          ctx.lineTo(s3.x, s3.y);
+          ctx.lineTo(s4.x, s4.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Front airflow louvers (Havalandırma menfezi çizgileri)
+          const louverFrac = 0.65;
+          const sL1 = worldToScreen(p1.x + nInt.x * (ac.depth * louverFrac), p1.y + nInt.y * (ac.depth * louverFrac), cW, cH);
+          const sL2 = worldToScreen(p2.x + nInt.x * (ac.depth * louverFrac), p2.y + nInt.y * (ac.depth * louverFrac), cW, cH);
+          ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(255, 255, 255, 0.65)";
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(sL1.x, sL1.y);
+          ctx.lineTo(sL2.x, sL2.y);
+          ctx.stroke();
+
+          // Airflow Direction Waves (Hava Üfleme Dalgası)
+          const midFront = { x: (p3.x + p4.x) / 2, y: (p3.y + p4.y) / 2 };
+          const sMF = worldToScreen(midFront.x, midFront.y, cW, cH);
+          const sWave = worldToScreen(midFront.x + nInt.x * 60, midFront.y + nInt.y * 60, cW, cH);
+          ctx.strokeStyle = isSelected ? "#29f57e" : "rgba(6, 182, 212, 0.5)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath();
+          ctx.moveTo(sMF.x, sMF.y);
+          ctx.lineTo(sWave.x, sWave.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Dimension badge when selected
+          if (isSelected) {
+            const d1 = acOffset;
+            const d2 = wallLen - (acOffset + ac.width);
+            const dimOffsetDist = 180;
+
+            const sOffStart = worldToScreen(wall.start.x + nInt.x * (innerDist + dimOffsetDist), wall.start.y + nInt.y * (innerDist + dimOffsetDist), cW, cH);
+            const sOffAC1 = worldToScreen(p1.x + nInt.x * dimOffsetDist, p1.y + nInt.y * dimOffsetDist, cW, cH);
+
+            if (d1 > 10) {
+              ctx.strokeStyle = "#4ade80";
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(sOffStart.x, sOffStart.y);
+              ctx.lineTo(sOffAC1.x, sOffAC1.y);
+              ctx.stroke();
+
+              const mid1X = (sOffStart.x + sOffAC1.x) / 2;
+              const mid1Y = (sOffStart.y + sOffAC1.y) / 2;
+              const text1 = `${Math.round(d1 / 10)} cm ✎`;
+              ctx.font = "bold 11px Montserrat, sans-serif";
+              const m1 = ctx.measureText(text1);
+              const b1W = m1.width + 12;
+              const b1H = 22;
+
+              ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
+              ctx.strokeStyle = "#4ade80";
+              ctx.lineWidth = 1.2;
+              ctx.beginPath();
+              ctx.roundRect(mid1X - b1W / 2, mid1Y - b1H / 2, b1W, b1H, 5);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.fillStyle = "#4ade80";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(text1, mid1X, mid1Y);
+
+              tempDimHitboxesRef.current.push({
+                minX: mid1X - b1W / 2 - 4,
+                maxX: mid1X + b1W / 2 + 4,
+                minY: mid1Y - b1H / 2 - 4,
+                maxY: mid1Y + b1H / 2 + 4,
+                kind: "wallOffset",
+                elementId: ac.id,
+                elementType: "acUnit",
+                isStartDim: true,
+                currentVal: d1,
+                wallLen,
+                elementWidth: ac.width,
+              });
+            }
+          }
+        }
+      });
+    }
+
     // 9. Draw Auto-Close Guide Line if room is not yet closed
     if (!room.isClosed && room.walls.length >= 1) {
       const sHead = worldToScreen(activePoint.x, activePoint.y, cW, cH);
@@ -1790,6 +2308,14 @@ export default function PlanCanvas2D({
         }
       });
 
+      // Beams
+      room.beams?.forEach((beam) => {
+        const geo = computeBeamGeometry(beam, room.walls);
+        if (geo.center.x >= boxMinX && geo.center.x <= boxMaxX && geo.center.y >= boxMinY && geo.center.y <= boxMaxY) {
+          hitIds.push(beam.id);
+        }
+      });
+
       if (hitIds.length > 0) {
         onSelectMultiple?.(hitIds);
       } else {
@@ -1809,17 +2335,19 @@ export default function PlanCanvas2D({
       ) {
         if (hb.kind === "wallOffset" && hb.elementId && hb.elementType) {
           const curValCm = Math.round((hb.currentVal || 0) / 10);
-          const label = hb.isStartDim ? "Mesafe Duvar Başından (cm):" : "Mesafe Duvar Sonundan (cm):";
-          const inputVal = window.prompt(label, String(curValCm));
-          if (inputVal !== null) {
-            const parsed = parseFloat(inputVal.trim());
-            if (!isNaN(parsed) && parsed >= 0) {
-              const parsedMm = parsed * 10;
-              const wallLen = hb.wallLen || 3000;
-              const elemW = hb.elementWidth || 0;
-              let newOffset = hb.isStartDim ? parsedMm : wallLen - elemW - parsedMm;
-              newOffset = Math.max(0, Math.min(wallLen - elemW, Math.round(newOffset)));
-              onChangeElementOffset?.(hb.elementId, hb.elementType, newOffset);
+          if (hb.elementType !== "beam" && hb.elementType !== "chimney") {
+            const label = hb.isStartDim ? "Mesafe Duvar Başından (cm):" : "Mesafe Duvar Sonundan (cm):";
+            const inputVal = window.prompt(label, String(curValCm));
+            if (inputVal !== null) {
+              const parsed = parseFloat(inputVal.trim());
+              if (!isNaN(parsed) && parsed >= 0) {
+                const parsedMm = parsed * 10;
+                const wallLen = hb.wallLen || 3000;
+                const elemW = hb.elementWidth || 0;
+                let newOffset = hb.isStartDim ? parsedMm : wallLen - elemW - parsedMm;
+                newOffset = Math.max(0, Math.min(wallLen - elemW, Math.round(newOffset)));
+                onChangeElementOffset?.(hb.elementId, hb.elementType, newOffset);
+              }
             }
           }
           return;
@@ -1850,11 +2378,107 @@ export default function PlanCanvas2D({
             }
           }
           return;
+        } else if (hb.kind === "beamCoord" && hb.beamId && hb.direction && hb.wallHitCoord !== undefined) {
+          const curValCm = Math.round((hb.currentVal || 0) / 10);
+          const dirMap: Record<string, string> = {
+            up: "Üst",
+            down: "Alt",
+            left: "Sol",
+            right: "Sağ",
+          };
+          const dirLabel = dirMap[hb.direction] || hb.direction;
+          const inputVal = window.prompt(`Mesafe (${dirLabel} Duvara) (cm):`, String(curValCm));
+          if (inputVal !== null) {
+            const parsed = parseFloat(inputVal.trim());
+            if (!isNaN(parsed) && parsed >= 0) {
+              const newDistMm = Math.round(parsed * 10);
+              const beam = room.beams?.find((b) => b.id === hb.beamId);
+              if (beam) {
+                const isHoriz = beam.orientation === "horizontal";
+                const w = beam.width || 250;
+                if (isHoriz) {
+                  if (hb.direction === "up") {
+                    let newY: number;
+                    const yTop = hb.wallHitCoord - newDistMm;
+                    if (beam.alignment === "interior") newY = yTop - w;
+                    else if (beam.alignment === "exterior") newY = yTop;
+                    else newY = yTop - w / 2;
+                    onChangeBeamPosition?.(beam.id, { y: Math.round(newY) });
+                  } else if (hb.direction === "down") {
+                    let newY: number;
+                    const yBottom = hb.wallHitCoord + newDistMm;
+                    if (beam.alignment === "interior") newY = yBottom;
+                    else if (beam.alignment === "exterior") newY = yBottom + w;
+                    else newY = yBottom + w / 2;
+                    onChangeBeamPosition?.(beam.id, { y: Math.round(newY) });
+                  } else if (hb.direction === "left") {
+                    onChangeBeamPosition?.(beam.id, { spanStart: newDistMm });
+                  } else if (hb.direction === "right") {
+                    onChangeBeamPosition?.(beam.id, { spanEnd: newDistMm });
+                  }
+                } else {
+                  if (hb.direction === "left") {
+                    let newX: number;
+                    const xLeft = hb.wallHitCoord + newDistMm;
+                    if (beam.alignment === "interior") newX = xLeft;
+                    else if (beam.alignment === "exterior") newX = xLeft + w;
+                    else newX = xLeft + w / 2;
+                    onChangeBeamPosition?.(beam.id, { x: Math.round(newX) });
+                  } else if (hb.direction === "right") {
+                    let newX: number;
+                    const xRight = hb.wallHitCoord - newDistMm;
+                    if (beam.alignment === "interior") newX = xRight - w;
+                    else if (beam.alignment === "exterior") newX = xRight;
+                    else newX = xRight - w / 2;
+                    onChangeBeamPosition?.(beam.id, { x: Math.round(newX) });
+                  } else if (hb.direction === "down") {
+                    onChangeBeamPosition?.(beam.id, { spanStart: newDistMm });
+                  } else if (hb.direction === "up") {
+                    onChangeBeamPosition?.(beam.id, { spanEnd: newDistMm });
+                  }
+                }
+              }
+            }
+          }
+          return;
+        } else if (hb.kind === "chimneyCoord" && hb.chimneyId && hb.direction && hb.wallHitCoord !== undefined) {
+          const curValCm = Math.round((hb.currentVal || 0) / 10);
+          const dirMap: Record<string, string> = {
+            up: "Üst",
+            down: "Alt",
+            left: "Sol",
+            right: "Sağ",
+          };
+          const dirLabel = dirMap[hb.direction] || hb.direction;
+          const inputVal = window.prompt(`Mesafe (${dirLabel} Duvara) (cm):`, String(curValCm));
+          if (inputVal !== null) {
+            const parsed = parseFloat(inputVal.trim());
+            if (!isNaN(parsed) && parsed >= 0) {
+              const newDistMm = Math.round(parsed * 10);
+              const chim = room.chimneys?.find((c) => c.id === hb.chimneyId);
+              if (chim) {
+                let newX = chim.x;
+                let newY = chim.y;
+                const halfW = (chim.width || 400) / 2;
+                const halfD = (chim.depth || 400) / 2;
+                if (hb.direction === "up") {
+                  newY = Math.round(hb.wallHitCoord - newDistMm - halfD);
+                } else if (hb.direction === "down") {
+                  newY = Math.round(hb.wallHitCoord + newDistMm + halfD);
+                } else if (hb.direction === "left") {
+                  newX = Math.round(hb.wallHitCoord + newDistMm + halfW);
+                } else if (hb.direction === "right") {
+                  newX = Math.round(hb.wallHitCoord - newDistMm - halfW);
+                }
+                onChangeChimneyPosition?.(hb.chimneyId, newX, newY);
+              }
+            }
+          }
+          return;
         }
       }
     }
 
-    // 3. Quick Tap Hit-Testing for Snapping & Individual Elements
     const totalDist = Math.hypot(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y);
     if (totalDist < 8) {
       // 3a. Snap Surveyor Cursor to Wall Endpoint
@@ -1949,6 +2573,74 @@ export default function PlanCanvas2D({
               onSelectElement(light.id, "lighting");
             }
             return;
+          }
+        }
+      }
+
+      // 3b. Hit test Structural Beams (Kirişler)
+      if (room.beams) {
+        for (const beam of room.beams) {
+          const geo = computeBeamGeometry(beam, room.walls);
+          if (isPointInPolygon(clickWorld, geo.polygon)) {
+            if (e.shiftKey && onSelectMultiple) {
+              const currentIds = selectedElementIds || [];
+              const nextIds = currentIds.includes(beam.id) ? currentIds.filter((id) => id !== beam.id) : [...currentIds, beam.id];
+              onSelectMultiple(nextIds);
+            } else {
+              onSelectElement(beam.id, "beam");
+            }
+            return;
+          }
+        }
+      }
+
+      // 3c. Hit test Chimneys (Bacalar)
+      if (room.chimneys) {
+        for (const chim of room.chimneys) {
+          const w = chim.width || 400;
+          const d = chim.depth || 400;
+          if (
+            clickWorld.x >= chim.x - w / 2 &&
+            clickWorld.x <= chim.x + w / 2 &&
+            clickWorld.y >= chim.y - d / 2 &&
+            clickWorld.y <= chim.y + d / 2
+          ) {
+            if (e.shiftKey && onSelectMultiple) {
+              const currentIds = selectedElementIds || [];
+              const nextIds = currentIds.includes(chim.id) ? currentIds.filter((id) => id !== chim.id) : [...currentIds, chim.id];
+              onSelectMultiple(nextIds);
+            } else {
+              onSelectElement(chim.id, "chimney");
+            }
+            return;
+          }
+        }
+      }
+
+      // 3d. Hit test Air Conditioning Units (Klimalar)
+      if (room.acUnits) {
+        for (const ac of room.acUnits) {
+          if (ac.type === "split_wall" && ac.wallId) {
+            const wall = room.walls.find((w) => w.id === ac.wallId);
+            if (wall) {
+              const offset = getOffsetAlongSegment(clickWorld, wall.start, wall.end);
+              const distToWall = getDistanceToSegment(clickWorld, wall.start, wall.end);
+              const acOffset = ac.offset || 0;
+              if (
+                offset >= acOffset - 30 &&
+                offset <= acOffset + ac.width + 30 &&
+                distToWall <= (wall.thickness || 150) + ac.depth + 100
+              ) {
+                if (e.shiftKey && onSelectMultiple) {
+                  const currentIds = selectedElementIds || [];
+                  const nextIds = currentIds.includes(ac.id) ? currentIds.filter((id) => id !== ac.id) : [...currentIds, ac.id];
+                  onSelectMultiple(nextIds);
+                } else {
+                  onSelectElement(ac.id, "acUnit");
+                }
+                return;
+              }
+            }
           }
         }
       }

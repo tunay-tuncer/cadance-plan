@@ -9,6 +9,7 @@ import {
   getRoomCentroid,
   calculateLightPositionFromWallDistances,
   calculateLightFourWayDimensions,
+  computeBeamGeometry,
 } from "@/lib/cad/geometry";
 import {
   MdClose,
@@ -31,7 +32,7 @@ interface PlanInspectorProps {
   onUpdateRoom: (updater: (prev: RoomPlanItem) => RoomPlanItem) => void;
   onUpdateAllWallHeights?: (newHeightMm: number) => void;
   selectedElementId: string | null;
-  selectedElementType: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | null;
+  selectedElementType: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null;
   selectedElementIds?: string[];
   onDeselect: () => void;
   layerSettings: LayerSettings;
@@ -90,23 +91,40 @@ export default function PlanInspector({
       ? room.lighting?.find((l) => l.id === selectedElementId)
       : null;
 
+  const selectedBeam =
+    selectedElementType === "beam"
+      ? room.beams?.find((b) => b.id === selectedElementId)
+      : null;
+
+  const selectedChimney =
+    selectedElementType === "chimney"
+      ? room.chimneys?.find((c) => c.id === selectedElementId)
+      : null;
+
+  const selectedAC =
+    selectedElementType === "acUnit"
+      ? room.acUnits?.find((ac) => ac.id === selectedElementId)
+      : null;
+
   // Layer toggle helper
   const toggleVisibility = (layerKey: keyof LayerSettings) => {
+    const current = layerSettings[layerKey] || { visible: true, locked: false };
     onUpdateLayerSettings({
       ...layerSettings,
       [layerKey]: {
-        ...layerSettings[layerKey],
-        visible: !layerSettings[layerKey].visible,
+        ...current,
+        visible: !current.visible,
       },
     });
   };
 
   const toggleLock = (layerKey: keyof LayerSettings) => {
+    const current = layerSettings[layerKey] || { visible: true, locked: false };
     onUpdateLayerSettings({
       ...layerSettings,
       [layerKey]: {
-        ...layerSettings[layerKey],
-        locked: !layerSettings[layerKey].locked,
+        ...current,
+        locked: !current.locked,
       },
     });
   };
@@ -157,6 +175,12 @@ export default function PlanInspector({
       onUpdateRoom((prev) => ({
         ...prev,
         lighting: prev.lighting?.filter((l) => l.id !== selectedElementId) || [],
+      }));
+      onDeselect();
+    } else if (selectedElementType === "beam") {
+      onUpdateRoom((prev) => ({
+        ...prev,
+        beams: prev.beams?.filter((b) => b.id !== selectedElementId) || [],
       }));
       onDeselect();
     }
@@ -401,6 +425,104 @@ export default function PlanInspector({
                 </button>
               </div>
             </div>
+
+            {/* Beams Layer */}
+            <div className={styles.layerItem}>
+              <div className={styles.layerNameArea}>
+                <span className={styles.layerDot} style={{ background: "#94a3b8" }} />
+                <span>Kirişler (Structural Beams)</span>
+              </div>
+              <div className={styles.layerControls}>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleVisibility("beams")}
+                >
+                  {layerSettings.beams?.visible ? <MdVisibility size={16} /> : <MdVisibilityOff size={16} />}
+                </button>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleLock("beams")}
+                >
+                  {layerSettings.beams?.locked ? <MdLockOutline size={16} /> : <MdLockOpen size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Chimneys Layer */}
+            <div className={styles.layerItem}>
+              <div className={styles.layerNameArea}>
+                <span className={styles.layerDot} style={{ background: "#ea580c" }} />
+                <span>Bacalar (Chimneys)</span>
+              </div>
+              <div className={styles.layerControls}>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleVisibility("chimneys")}
+                >
+                  {layerSettings.chimneys?.visible ? <MdVisibility size={16} /> : <MdVisibilityOff size={16} />}
+                </button>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleLock("chimneys")}
+                >
+                  {layerSettings.chimneys?.locked ? <MdLockOutline size={16} /> : <MdLockOpen size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* AC Units Layer */}
+            <div className={styles.layerItem}>
+              <div className={styles.layerNameArea}>
+                <span className={styles.layerDot} style={{ background: "#06b6d4" }} />
+                <span>Klimalar (AC Units)</span>
+              </div>
+              <div className={styles.layerControls}>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleVisibility("acUnits")}
+                >
+                  {layerSettings.acUnits?.visible ? <MdVisibility size={16} /> : <MdVisibilityOff size={16} />}
+                </button>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleLock("acUnits")}
+                >
+                  {layerSettings.acUnits?.locked ? <MdLockOutline size={16} /> : <MdLockOpen size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Room Tags (Oda Adı ve Metrekare) */}
+            <div className={styles.layerItem}>
+              <div className={styles.layerNameArea}>
+                <span className={styles.layerDot} style={{ background: "#22c55e" }} />
+                <span>Oda Adı & Metrekare Etiketi</span>
+              </div>
+              <div className={styles.layerControls}>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleVisibility("roomTags")}
+                  title="Oda adını ve m² etiketini göster/gizle"
+                >
+                  {layerSettings.roomTags?.visible !== false ? <MdVisibility size={16} /> : <MdVisibilityOff size={16} />}
+                </button>
+                <button
+                  type="button"
+                  className={styles.layerToggleBtn}
+                  onClick={() => toggleLock("roomTags")}
+                  title="Kilitle"
+                >
+                  {layerSettings.roomTags?.locked ? <MdLockOutline size={16} /> : <MdLockOpen size={16} />}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -463,13 +585,12 @@ export default function PlanInspector({
                       <label className={styles.fieldLabel}>Toplu Yükseklik (cm)</label>
                       <input
                         type="number"
-                        min="150"
-                        max="600"
                         step="10"
                         placeholder="Örn: 280"
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
                           const h = Number(e.target.value);
-                          if (h >= 100) {
+                          if (h >= 10) {
                             onUpdateRoom((prev) => ({
                               ...prev,
                               walls: prev.walls.map((w) =>
@@ -520,13 +641,12 @@ export default function PlanInspector({
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                     <input
                       type="number"
-                      min="50"
-                      max="2500"
                       step="5"
-                      value={Math.round(getDistance(selectedWall.start, selectedWall.end) / 10)}
+                      value={Math.round(getDistance(selectedWall.start, selectedWall.end) / 10) || ""}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const newL = Number(e.target.value);
-                        if (newL >= 50) {
+                        if (newL > 0) {
                           onUpdateRoom((prev) => resizeRoomWallLength(prev, selectedWall.id, newL * 10));
                         }
                       }}
@@ -600,17 +720,19 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Duvar Yüksekliği (cm)</label>
                   <input
                     type="number"
-                    min="150"
                     step="10"
-                    value={Math.round(selectedWall.height / 10)}
+                    value={Math.round(selectedWall.height / 10) || ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const h = Number(e.target.value) || 280;
-                      onUpdateRoom((prev) => ({
-                        ...prev,
-                        walls: prev.walls.map((w) =>
-                          w.id === selectedWall.id ? { ...w, height: h * 10 } : w
-                        ),
-                      }));
+                      const h = Number(e.target.value);
+                      if (h > 0) {
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          walls: prev.walls.map((w) =>
+                            w.id === selectedWall.id ? { ...w, height: h * 10 } : w
+                          ),
+                        }));
+                      }
                     }}
                     className={styles.textInput}
                   />
@@ -671,14 +793,14 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                         <input
                           type="number"
-                          min="5"
                           step="5"
-                          value={Math.round(selectedDoor.offset / 10)}
+                          value={selectedDoor.offset ? Math.round(selectedDoor.offset / 10) : ""}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => {
-                            const newOffCm = Number(e.target.value) || 0;
+                            const newOffCm = Number(e.target.value);
                             const newOff = newOffCm * 10;
                             const maxOff = Math.max(50, wallLen - selectedDoor.width - 50);
-                            const safe = Math.max(50, Math.min(maxOff, newOff));
+                            const safe = Math.max(0, Math.min(maxOff, newOff));
                             onUpdateRoom((prev) => ({
                               ...prev,
                               doors: prev.doors.map((d) => (d.id === selectedDoor.id ? { ...d, offset: safe } : d)),
@@ -691,15 +813,15 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Sonundan Mesafe (cm)</label>
                         <input
                           type="number"
-                          min="5"
                           step="5"
-                          value={Math.round(distFromEnd / 10)}
+                          value={distFromEnd ? Math.round(distFromEnd / 10) : ""}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => {
-                            const targetDistCm = Number(e.target.value) || 0;
+                            const targetDistCm = Number(e.target.value);
                             const targetDist = targetDistCm * 10;
                             const newOff = wallLen - selectedDoor.width - targetDist;
                             const maxOff = Math.max(50, wallLen - selectedDoor.width - 50);
-                            const safe = Math.max(50, Math.min(maxOff, newOff));
+                            const safe = Math.max(0, Math.min(maxOff, newOff));
                             onUpdateRoom((prev) => ({
                               ...prev,
                               doors: prev.doors.map((d) => (d.id === selectedDoor.id ? { ...d, offset: safe } : d)),
@@ -785,24 +907,50 @@ export default function PlanInspector({
                   </>
                 )}
 
-                <div className={styles.formField}>
-                  <label className={styles.fieldLabel}>Genişlik (cm)</label>
-                  <input
-                    type="number"
-                    min="60"
-                    step="5"
-                    value={Math.round(selectedDoor.width / 10)}
-                    onChange={(e) => {
-                      const w = Number(e.target.value) || 90;
-                      onUpdateRoom((prev) => ({
-                        ...prev,
-                        doors: prev.doors.map((d) =>
-                          d.id === selectedDoor.id ? { ...d, width: w * 10 } : d
-                        ),
-                      }));
-                    }}
-                    className={styles.textInput}
-                  />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Genişlik (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round(selectedDoor.width / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const w = Number(e.target.value);
+                        if (w > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            doors: prev.doors.map((d) =>
+                              d.id === selectedDoor.id ? { ...d, width: w * 10 } : d
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Yükseklik (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round((selectedDoor.height || 2100) / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const h = Number(e.target.value);
+                        if (h > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            doors: prev.doors.map((d) =>
+                              d.id === selectedDoor.id ? { ...d, height: h * 10 } : d
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
                 </div>
 
                 <div className={styles.formField}>
@@ -914,14 +1062,14 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                         <input
                           type="number"
-                          min="5"
                           step="5"
-                          value={Math.round(selectedWindow.offset / 10)}
+                          value={selectedWindow.offset ? Math.round(selectedWindow.offset / 10) : ""}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => {
-                            const newOffCm = Number(e.target.value) || 0;
+                            const newOffCm = Number(e.target.value);
                             const newOff = newOffCm * 10;
                             const maxOff = Math.max(50, wallLen - selectedWindow.width - 50);
-                            const safe = Math.max(50, Math.min(maxOff, newOff));
+                            const safe = Math.max(0, Math.min(maxOff, newOff));
                             onUpdateRoom((prev) => ({
                               ...prev,
                               windows: prev.windows.map((win) => (win.id === selectedWindow.id ? { ...win, offset: safe } : win)),
@@ -934,15 +1082,15 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Sonundan Mesafe (cm)</label>
                         <input
                           type="number"
-                          min="5"
                           step="5"
-                          value={Math.round(distFromEnd / 10)}
+                          value={distFromEnd ? Math.round(distFromEnd / 10) : ""}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => {
-                            const targetDistCm = Number(e.target.value) || 0;
+                            const targetDistCm = Number(e.target.value);
                             const targetDist = targetDistCm * 10;
                             const newOff = wallLen - selectedWindow.width - targetDist;
                             const maxOff = Math.max(50, wallLen - selectedWindow.width - 50);
-                            const safe = Math.max(50, Math.min(maxOff, newOff));
+                            const safe = Math.max(0, Math.min(maxOff, newOff));
                             onUpdateRoom((prev) => ({
                               ...prev,
                               windows: prev.windows.map((win) => (win.id === selectedWindow.id ? { ...win, offset: safe } : win)),
@@ -1042,17 +1190,19 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Genişlik (cm)</label>
                   <input
                     type="number"
-                    min="50"
                     step="5"
-                    value={Math.round(selectedWindow.width / 10)}
+                    value={Math.round(selectedWindow.width / 10) || ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const w = Number(e.target.value) || 120;
-                      onUpdateRoom((prev) => ({
-                        ...prev,
-                        windows: prev.windows.map((win) =>
-                          win.id === selectedWindow.id ? { ...win, width: w * 10 } : win
-                        ),
-                      }));
+                      const w = Number(e.target.value);
+                      if (w > 0) {
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          windows: prev.windows.map((win) =>
+                            win.id === selectedWindow.id ? { ...win, width: w * 10 } : win
+                          ),
+                        }));
+                      }
                     }}
                     className={styles.textInput}
                   />
@@ -1062,17 +1212,19 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Yükseklik (cm)</label>
                   <input
                     type="number"
-                    min="50"
                     step="5"
-                    value={Math.round(selectedWindow.height / 10)}
+                    value={Math.round(selectedWindow.height / 10) || ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const h = Number(e.target.value) || 140;
-                      onUpdateRoom((prev) => ({
-                        ...prev,
-                        windows: prev.windows.map((win) =>
-                          win.id === selectedWindow.id ? { ...win, height: h * 10 } : win
-                        ),
-                      }));
+                      const h = Number(e.target.value);
+                      if (h > 0) {
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          windows: prev.windows.map((win) =>
+                            win.id === selectedWindow.id ? { ...win, height: h * 10 } : win
+                          ),
+                        }));
+                      }
                     }}
                     className={styles.textInput}
                   />
@@ -1082,11 +1234,11 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Parapet / Denizlik Kotu (cm)</label>
                   <input
                     type="number"
-                    min="0"
                     step="5"
-                    value={Math.round(selectedWindow.sillHeight / 10)}
+                    value={selectedWindow.sillHeight !== undefined ? Math.round(selectedWindow.sillHeight / 10) : ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const sill = Number(e.target.value) || 90;
+                      const sill = e.target.value === "" ? 0 : Number(e.target.value);
                       onUpdateRoom((prev) => ({
                         ...prev,
                         windows: prev.windows.map((win) =>
@@ -1146,12 +1298,12 @@ export default function PlanInspector({
                       <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                       <input
                         type="number"
-                        min="5"
                         step="5"
-                        value={Math.round(selectedElectrical.offset / 10)}
+                        value={selectedElectrical.offset ? Math.round(selectedElectrical.offset / 10) : ""}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
-                          const offCm = Number(e.target.value) || 0;
-                          const safe = Math.max(50, Math.min(wallLen - 50, offCm * 10));
+                          const offCm = Number(e.target.value);
+                          const safe = Math.max(0, Math.min(wallLen - 50, offCm * 10));
                           onUpdateRoom((prev) => ({
                             ...prev,
                             electrical: prev.electrical?.map((el) =>
@@ -1169,12 +1321,11 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Montaj Kotu / Yükseklik (cm)</label>
                   <input
                     type="number"
-                    min="5"
-                    max="280"
                     step="5"
-                    value={Math.round((selectedElectrical.elevation || 300) / 10)}
+                    value={selectedElectrical.elevation !== undefined ? Math.round((selectedElectrical.elevation || 0) / 10) : ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const elevCm = Number(e.target.value) || 30;
+                      const elevCm = Number(e.target.value);
                       onUpdateRoom((prev) => ({
                         ...prev,
                         electrical: prev.electrical?.map((el) =>
@@ -1230,18 +1381,19 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Petek Genişliği (cm)</label>
                   <input
                     type="number"
-                    min="40"
-                    max="240"
                     step="10"
-                    value={Math.round(selectedRadiator.width / 10)}
+                    value={Math.round(selectedRadiator.width / 10) || ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const wCm = Number(e.target.value) || 100;
-                      onUpdateRoom((prev) => ({
-                        ...prev,
-                        radiators: prev.radiators?.map((rad) =>
-                          rad.id === selectedRadiator.id ? { ...rad, width: wCm * 10 } : rad
-                        ),
-                      }));
+                      const wCm = Number(e.target.value);
+                      if (wCm > 0) {
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          radiators: prev.radiators?.map((rad) =>
+                            rad.id === selectedRadiator.id ? { ...rad, width: wCm * 10 } : rad
+                          ),
+                        }));
+                      }
                     }}
                     className={styles.textInput}
                   />
@@ -1276,12 +1428,12 @@ export default function PlanInspector({
                       <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                       <input
                         type="number"
-                        min="5"
                         step="5"
-                        value={Math.round(selectedRadiator.offset / 10)}
+                        value={selectedRadiator.offset ? Math.round(selectedRadiator.offset / 10) : ""}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
-                          const offCm = Number(e.target.value) || 0;
-                          const safe = Math.max(50, Math.min(wallLen - selectedRadiator.width - 50, offCm * 10));
+                          const offCm = Number(e.target.value);
+                          const safe = Math.max(0, Math.min(wallLen - selectedRadiator.width - 50, offCm * 10));
                           onUpdateRoom((prev) => ({
                             ...prev,
                             radiators: prev.radiators?.map((rad) =>
@@ -1315,18 +1467,19 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Yükseklik (cm)</label>
                   <input
                     type="number"
-                    min="30"
-                    max="100"
                     step="5"
-                    value={Math.round(selectedRadiator.height / 10)}
+                    value={Math.round(selectedRadiator.height / 10) || ""}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const hCm = Number(e.target.value) || 60;
-                      onUpdateRoom((prev) => ({
-                        ...prev,
-                        radiators: prev.radiators?.map((rad) =>
-                          rad.id === selectedRadiator.id ? { ...rad, height: hCm * 10 } : rad
-                        ),
-                      }));
+                      const hCm = Number(e.target.value);
+                      if (hCm > 0) {
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          radiators: prev.radiators?.map((rad) =>
+                            rad.id === selectedRadiator.id ? { ...rad, height: hCm * 10 } : rad
+                          ),
+                        }));
+                      }
                     }}
                     className={styles.textInput}
                   />
@@ -1431,11 +1584,11 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>1. Duvara Mesafe (cm)</label>
                     <input
                       type="number"
-                      min="10"
                       step="5"
-                      value={Math.round((selectedLight.distWall1 || 1000) / 10)}
+                      value={selectedLight.distWall1 ? Math.round(selectedLight.distWall1 / 10) : ""}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
-                        const distCm = Number(e.target.value) || 100;
+                        const distCm = Number(e.target.value);
                         const distMm = distCm * 10;
                         const ref1 = selectedLight.refWallId1 || room.walls[0]?.id;
                         const ref2 = selectedLight.refWallId2;
@@ -1481,11 +1634,11 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>2. Duvara Mesafe (cm)</label>
                     <input
                       type="number"
-                      min="10"
                       step="5"
-                      value={Math.round((selectedLight.distWall2 || 1000) / 10)}
+                      value={selectedLight.distWall2 ? Math.round(selectedLight.distWall2 / 10) : ""}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
-                        const distCm = Number(e.target.value) || 100;
+                        const distCm = Number(e.target.value);
                         const distMm = distCm * 10;
                         const ref1 = selectedLight.refWallId1 || room.walls[0]?.id;
                         const ref2 = selectedLight.refWallId2 || room.walls[1]?.id;
@@ -1546,8 +1699,564 @@ export default function PlanInspector({
               </div>
             )}
 
+            {/* Selected Beam Inspector */}
+            {selectedBeam && (
+              <div>
+                <div className={styles.sectionTitle}>
+                  Kiriş Özellikleri ({selectedBeam.name || "Kiriş"})
+                </div>
+
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Kiriş Tanımı / Kodu</label>
+                  <input
+                    type="text"
+                    value={selectedBeam.name || ""}
+                    onChange={(e) =>
+                      onUpdateRoom((prev) => ({
+                        ...prev,
+                        beams: prev.beams?.map((b) =>
+                          b.id === selectedBeam.id ? { ...b, name: e.target.value } : b
+                        ),
+                      }))
+                    }
+                    className={styles.textInput}
+                    placeholder="Örn: K101"
+                  />
+                </div>
+
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Doğrultu (Yön)</label>
+                  <div className={styles.optionRadioGroup}>
+                    <label
+                      className={`${styles.optionRadioLabel} ${
+                        selectedBeam.orientation === "horizontal" ? styles.optionRadioActive : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="beamOrientation"
+                        value="horizontal"
+                        checked={selectedBeam.orientation === "horizontal"}
+                        onChange={() =>
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            beams: prev.beams?.map((b) =>
+                              b.id === selectedBeam.id ? { ...b, orientation: "horizontal" } : b
+                            ),
+                          }))
+                        }
+                        style={{ accentColor: "var(--accent)" }}
+                      />
+                      <span>↔ Yatay (X)</span>
+                    </label>
+
+                    <label
+                      className={`${styles.optionRadioLabel} ${
+                        selectedBeam.orientation === "vertical" ? styles.optionRadioActive : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="beamOrientation"
+                        value="vertical"
+                        checked={selectedBeam.orientation === "vertical"}
+                        onChange={() =>
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            beams: prev.beams?.map((b) =>
+                              b.id === selectedBeam.id ? { ...b, orientation: "vertical" } : b
+                            ),
+                          }))
+                        }
+                        style={{ accentColor: "var(--accent)" }}
+                      />
+                      <span>↕ Dikey (Y)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Hizalama (Referans Hattı)</label>
+                  <div className={styles.optionRadioGroup}>
+                    {(["interior", "center", "exterior"] as const).map((align) => (
+                      <label
+                        key={align}
+                        className={`${styles.optionRadioLabel} ${
+                          (selectedBeam.alignment || "center") === align ? styles.optionRadioActive : ""
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="beamAlignment"
+                          value={align}
+                          checked={(selectedBeam.alignment || "center") === align}
+                          onChange={() =>
+                            onUpdateRoom((prev) => ({
+                              ...prev,
+                              beams: prev.beams?.map((b) =>
+                                b.id === selectedBeam.id ? { ...b, alignment: align } : b
+                              ),
+                            }))
+                          }
+                          style={{ accentColor: "var(--accent)" }}
+                        />
+                        <span>{align === "interior" ? "İç Hat" : align === "center" ? "Aks (Orta)" : "Dış Hat"}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Genişlik / Kalınlık (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round(selectedBeam.width / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (val > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            beams: prev.beams?.map((b) =>
+                              b.id === selectedBeam.id ? { ...b, width: val * 10 } : b
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Sarkma Derinliği (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round(selectedBeam.depth / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (val > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            beams: prev.beams?.map((b) =>
+                              b.id === selectedBeam.id ? { ...b, depth: val * 10 } : b
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.subCard}>
+                  <div className={styles.subCardTitle}>Çevre Duvarlara Canlı Mesafeler</div>
+                  <span style={{ fontSize: "0.75rem", color: "var(--textMuted)", display: "block", marginBottom: "0.5rem" }}>
+                    2D planda kirişin 4 tarafındaki ölçü etiketlerine (cm ✎) tıklayarak veya aşağıdaki hızlı butonlarla kirişi doğrudan bir duvara bitişik yerleştirebilirsiniz.
+                  </span>
+
+                  {/* Quick Snap-to-Wall Buttons */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem", marginTop: "0.4rem" }}>
+                    {selectedBeam.orientation === "horizontal" ? (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.presetChip}
+                          style={{ justifyContent: "center" }}
+                          onClick={() => {
+                            const geo = computeBeamGeometry(selectedBeam, room.walls);
+                            if (geo.dimensions.up) {
+                              const hitY = geo.dimensions.up.point.y;
+                              const w = selectedBeam.width || 250;
+                              let newY = hitY - w / 2;
+                              if (selectedBeam.alignment === "interior") newY = hitY - w;
+                              else if (selectedBeam.alignment === "exterior") newY = hitY;
+                              onUpdateRoom((prev) => ({
+                                ...prev,
+                                beams: prev.beams?.map((b) =>
+                                  b.id === selectedBeam.id ? { ...b, y: Math.round(newY) } : b
+                                ),
+                              }));
+                            }
+                          }}
+                        >
+                          ↑ Üst Duvara Bitiştir (0 cm)
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.presetChip}
+                          style={{ justifyContent: "center" }}
+                          onClick={() => {
+                            const geo = computeBeamGeometry(selectedBeam, room.walls);
+                            if (geo.dimensions.down) {
+                              const hitY = geo.dimensions.down.point.y;
+                              const w = selectedBeam.width || 250;
+                              let newY = hitY + w / 2;
+                              if (selectedBeam.alignment === "interior") newY = hitY;
+                              else if (selectedBeam.alignment === "exterior") newY = hitY + w;
+                              onUpdateRoom((prev) => ({
+                                ...prev,
+                                beams: prev.beams?.map((b) =>
+                                  b.id === selectedBeam.id ? { ...b, y: Math.round(newY) } : b
+                                ),
+                              }));
+                            }
+                          }}
+                        >
+                          ↓ Alt Duvara Bitiştir (0 cm)
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.presetChip}
+                          style={{ justifyContent: "center" }}
+                          onClick={() => {
+                            const geo = computeBeamGeometry(selectedBeam, room.walls);
+                            if (geo.dimensions.left) {
+                              const hitX = geo.dimensions.left.point.x;
+                              const w = selectedBeam.width || 250;
+                              let newX = hitX + w / 2;
+                              if (selectedBeam.alignment === "interior") newX = hitX;
+                              else if (selectedBeam.alignment === "exterior") newX = hitX + w;
+                              onUpdateRoom((prev) => ({
+                                ...prev,
+                                beams: prev.beams?.map((b) =>
+                                  b.id === selectedBeam.id ? { ...b, x: Math.round(newX) } : b
+                                ),
+                              }));
+                            }
+                          }}
+                        >
+                          ← Sol Duvara Bitiştir (0 cm)
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.presetChip}
+                          style={{ justifyContent: "center" }}
+                          onClick={() => {
+                            const geo = computeBeamGeometry(selectedBeam, room.walls);
+                            if (geo.dimensions.right) {
+                              const hitX = geo.dimensions.right.point.x;
+                              const w = selectedBeam.width || 250;
+                              let newX = hitX - w / 2;
+                              if (selectedBeam.alignment === "interior") newX = hitX - w;
+                              else if (selectedBeam.alignment === "exterior") newX = hitX;
+                              onUpdateRoom((prev) => ({
+                                ...prev,
+                                beams: prev.beams?.map((b) =>
+                                  b.id === selectedBeam.id ? { ...b, x: Math.round(newX) } : b
+                                ),
+                              }));
+                            }
+                          }}
+                        >
+                          → Sağ Duvara Bitiştir (0 cm)
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.deleteItemBtn}
+                  onClick={handleDeleteSelected}
+                >
+                  <MdDeleteOutline size={16} />
+                  <span>Kirişi Sil</span>
+                </button>
+              </div>
+            )}
+
+            {/* Selected Chimney Element Card */}
+            {selectedChimney && (
+              <div className={styles.inspectorCard}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.cardTitle}>
+                    <span style={{ color: "#ea580c" }}>🔥</span>
+                    <span>{selectedChimney.name || "BACA"}</span>
+                  </div>
+                  <span className={styles.elementTag}>Baca</span>
+                </div>
+
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Baca Kodu / Tanımı</label>
+                  <input
+                    type="text"
+                    value={selectedChimney.name || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onUpdateRoom((prev) => ({
+                        ...prev,
+                        chimneys: prev.chimneys?.map((c) =>
+                          c.id === selectedChimney.id ? { ...c, name: val } : c
+                        ),
+                      }));
+                    }}
+                    className={styles.textInput}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Genişlik (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round(selectedChimney.width / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (val > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            chimneys: prev.chimneys?.map((c) =>
+                              c.id === selectedChimney.id ? { ...c, width: val * 10 } : c
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Derinlik (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round(selectedChimney.depth / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (val > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            chimneys: prev.chimneys?.map((c) =>
+                              c.id === selectedChimney.id ? { ...c, depth: val * 10 } : c
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>İç Duman Kanalı Çapı (cm)</label>
+                  <input
+                    type="number"
+                    step="2"
+                    value={Math.round((selectedChimney.flueDiameter || 180) / 10) || ""}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      if (val > 0) {
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          chimneys: prev.chimneys?.map((c) =>
+                            c.id === selectedChimney.id ? { ...c, flueDiameter: val * 10 } : c
+                          ),
+                        }));
+                      }
+                    }}
+                    className={styles.textInput}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.deleteItemBtn}
+                  onClick={handleDeleteSelected}
+                >
+                  <MdDeleteOutline size={16} />
+                  <span>Bacayı Sil</span>
+                </button>
+              </div>
+            )}
+
+            {/* Selected AC Unit Element Card */}
+            {selectedAC && (
+              <div className={styles.inspectorCard}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.cardTitle}>
+                    <span style={{ color: "#06b6d4" }}>❄️</span>
+                    <span>{selectedAC.name || "KLİMA"}</span>
+                  </div>
+                  <span className={styles.elementTag}>Klima</span>
+                </div>
+
+                <div className={styles.formField}>
+                  <label className={styles.fieldLabel}>Klima Tipi</label>
+                  <div style={{ display: "flex", gap: "0.8rem", marginTop: "0.2rem" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", cursor: "pointer", fontSize: "0.82rem" }}>
+                      <input
+                        type="radio"
+                        name="acType"
+                        value="split_wall"
+                        checked={selectedAC.type === "split_wall"}
+                        onChange={() =>
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            acUnits: prev.acUnits?.map((ac) =>
+                              ac.id === selectedAC.id ? { ...ac, type: "split_wall" } : ac
+                            ),
+                          }))
+                        }
+                        style={{ accentColor: "var(--accent)" }}
+                      />
+                      <span>Duvar Tipi Split</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", cursor: "pointer", fontSize: "0.82rem" }}>
+                      <input
+                        type="radio"
+                        name="acType"
+                        value="ceiling_cassette"
+                        checked={selectedAC.type === "ceiling_cassette"}
+                        onChange={() =>
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            acUnits: prev.acUnits?.map((ac) =>
+                              ac.id === selectedAC.id ? { ...ac, type: "ceiling_cassette" } : ac
+                            ),
+                          }))
+                        }
+                        style={{ accentColor: "var(--accent)" }}
+                      />
+                      <span>Kaset Tipi Tavan</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Duvar Başı (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round((selectedAC.offset || 0) / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          acUnits: prev.acUnits?.map((ac) =>
+                            ac.id === selectedAC.id ? { ...ac, offset: val * 10 } : ac
+                          ),
+                        }));
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Montaj Kotu (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round((selectedAC.elevation || 2400) / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          acUnits: prev.acUnits?.map((ac) =>
+                            ac.id === selectedAC.id ? { ...ac, elevation: val * 10 } : ac
+                          ),
+                        }));
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.4rem" }}>
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Genişlik (cm)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={Math.round(selectedAC.width / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (val > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            acUnits: prev.acUnits?.map((ac) =>
+                              ac.id === selectedAC.id ? { ...ac, width: val * 10 } : ac
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Derinlik (cm)</label>
+                    <input
+                      type="number"
+                      step="2"
+                      value={Math.round(selectedAC.depth / 10) || ""}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (val > 0) {
+                          onUpdateRoom((prev) => ({
+                            ...prev,
+                            acUnits: prev.acUnits?.map((ac) =>
+                              ac.id === selectedAC.id ? { ...ac, depth: val * 10 } : ac
+                            ),
+                          }));
+                        }
+                      }}
+                      className={styles.textInput}
+                    />
+                  </div>
+
+                  <div className={styles.formField}>
+                    <label className={styles.fieldLabel}>Kapasite (BTU)</label>
+                    <select
+                      value={selectedAC.capacityBtu || 12000}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        onUpdateRoom((prev) => ({
+                          ...prev,
+                          acUnits: prev.acUnits?.map((ac) =>
+                            ac.id === selectedAC.id ? { ...ac, capacityBtu: val } : ac
+                          ),
+                        }));
+                      }}
+                      className={styles.selectInput}
+                    >
+                      <option value={9000}>9.000 BTU</option>
+                      <option value={12000}>12.000 BTU</option>
+                      <option value={18000}>18.000 BTU</option>
+                      <option value={24000}>24.000 BTU</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.deleteItemBtn}
+                  onClick={handleDeleteSelected}
+                >
+                  <MdDeleteOutline size={16} />
+                  <span>Klimayı Sil</span>
+                </button>
+              </div>
+            )}
+
             {/* Nothing Selected -> Room General Info */}
-            {!selectedWall && !selectedDoor && !selectedWindow && !selectedElectrical && !selectedRadiator && !selectedLight && (
+            {!selectedWall && !selectedDoor && !selectedWindow && !selectedElectrical && !selectedRadiator && !selectedLight && !selectedBeam && !selectedChimney && !selectedAC && (
               <div>
                 <div className={styles.sectionTitle}>Oda Genel Bilgileri</div>
 
@@ -1568,21 +2277,22 @@ export default function PlanInspector({
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                     <input
                       type="number"
-                      min="150"
-                      max="600"
                       step="10"
-                      value={Math.round((room.walls[0]?.height || 2800) / 10)}
+                      value={Math.round((room.walls[0]?.height || 2800) / 10) || ""}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
-                        const newHCm = Math.max(100, Math.min(600, Number(e.target.value) || 280));
-                        const newH = newHCm * 10;
-                        if (onUpdateAllWallHeights) {
-                          onUpdateAllWallHeights(newH);
-                        } else {
-                          onUpdateRoom((prev) => ({
-                            ...prev,
-                            walls: prev.walls.map((w) => ({ ...w, height: newH })),
-                            ceiling: prev.ceiling ? { ...prev.ceiling, elevation: newH } : prev.ceiling,
-                          }));
+                        const newHCm = Number(e.target.value);
+                        if (newHCm > 0) {
+                          const newH = newHCm * 10;
+                          if (onUpdateAllWallHeights) {
+                            onUpdateAllWallHeights(newH);
+                          } else {
+                            onUpdateRoom((prev) => ({
+                              ...prev,
+                              walls: prev.walls.map((w) => ({ ...w, height: newH })),
+                              ceiling: prev.ceiling ? { ...prev.ceiling, elevation: newH } : prev.ceiling,
+                            }));
+                          }
                         }
                       }}
                       className={styles.textInput}
@@ -1771,6 +2481,21 @@ export default function PlanInspector({
                             {takeoff.ceilingAreaM2} m²
                           </span>
                         </div>
+
+                        {/* Structural Beams */}
+                        {(takeoff.beamCount || 0) > 0 && (
+                          <div className={styles.takeoffRow} style={{ borderTop: "1px solid rgba(255, 255, 255, 0.06)", paddingTop: "0.45rem" }}>
+                            <div className={styles.takeoffLabel}>
+                              <span style={{ color: "#ffffff", fontWeight: 600 }}>Kirişler ({takeoff.beamCount} adet)</span>
+                              <span className={styles.takeoffSub}>
+                                Toplam Boy: {takeoff.totalBeamLengthM} m
+                              </span>
+                            </div>
+                            <span className={styles.takeoffValue} style={{ color: "#94a3b8" }}>
+                              {takeoff.totalBeamVolumeM3} m³
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
