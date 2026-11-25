@@ -68,7 +68,10 @@
   background: none;
   border: none;
   cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0.35rem;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -76,6 +79,18 @@
 
 .closeDrawerBtn:hover {
   color: var(--textWhite);
+}
+
+.drawerHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.mobileSheetBackdrop,
+.mobileSheetHandle,
+.mobileExpandBtn {
+  display: none;
 }
 
 /* Scrollable Content */
@@ -352,15 +367,116 @@
   font-size: 0.92rem;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
+  .mobileSheetBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 95;
+  }
+
+  /* Bottom Sheet on Mobile so canvas remains visible above */
   .inspectorDrawer {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
     width: 100%;
     max-width: 100vw;
+    height: 60dvh;
     border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.85);
+    transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), height 0.22s ease;
+  }
+
+  .drawerExpandedMobile {
+    height: 88dvh;
+  }
+
+  .drawerClosed {
+    transform: translateY(105%);
+    pointer-events: none;
+  }
+
+  .drawerOpen {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .mobileSheetHandle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 0.55rem 0 0.2rem;
+    background: #17171e;
+    border-radius: 18px 18px 0 0;
+    cursor: pointer;
+  }
+
+  .mobileSheetPill {
+    width: 40px;
+    height: 4px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.28);
+  }
+
+  .drawerHeader {
+    padding: 0.5rem 0.9rem 0.75rem;
+  }
+
+  .mobileExpandBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 8px;
+    color: var(--textNav);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .closeDrawerBtn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .tabBtn {
+    min-height: 38px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.8rem;
+  }
+
+  .layerToggleBtn {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+  }
+
+  .presetChip {
+    min-height: 36px;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.78rem;
+  }
+
+  .textInput,
+  .selectInput {
+    font-size: 1rem;
+    min-height: 44px;
+  }
+
+  .optionRadioLabel,
+  .checkboxLabel,
+  .deleteItemBtn {
+    min-height: 44px;
   }
 
   .drawerContent {
     padding: 1rem;
     padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: contain;
   }
 }

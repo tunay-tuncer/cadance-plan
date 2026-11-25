@@ -22,6 +22,8 @@ import {
   MdDeleteOutline,
   MdChecklist,
   MdSwapHoriz,
+  MdExpandLess,
+  MdExpandMore,
 } from "react-icons/md";
 import styles from "./PlanInspector.module.css";
 
@@ -58,7 +60,28 @@ export default function PlanInspector({
   onSetActivePoint,
   onMergeColinearWalls,
 }: PlanInspectorProps) {
-  const [activeTab, setActiveTab] = useState<"layers" | "properties">("layers");
+  const selectionKey = `${selectedElementId ?? ""}:${selectedElementIds?.join(",") ?? ""}`;
+  const hasSelection = Boolean(selectedElementId || (selectedElementIds && selectedElementIds.length > 0));
+  const [tabChoice, setTabChoice] = useState<{ key: string; tab: "layers" | "properties" } | null>(null);
+  const [isExpandedMobile, setIsExpandedMobile] = useState(false);
+
+  // Derive activeTab: automatically show Properties whenever a new element is selected,
+  // while still letting the user manually switch to Layers for the current selection.
+  const activeTab: "layers" | "properties" =
+    tabChoice && tabChoice.key === selectionKey
+      ? tabChoice.tab
+      : hasSelection
+        ? "properties"
+        : tabChoice?.tab ?? "layers";
+
+  const handleSelectTab = (tab: "layers" | "properties") => {
+    setTabChoice({ key: selectionKey, tab });
+  };
+
+  const handleCloseDrawer = () => {
+    setIsExpandedMobile(false);
+    onClose();
+  };
 
   // Selected Elements
   const selectedWall =
@@ -187,41 +210,69 @@ export default function PlanInspector({
   };
 
   return (
-    <aside
-      className={`${styles.inspectorDrawer} ${
-        isOpen ? styles.drawerOpen : styles.drawerClosed
-      }`}
-    >
-      <div className={styles.drawerHeader}>
-        <div className={styles.tabSwitcher}>
-          <button
-            type="button"
-            className={`${styles.tabBtn} ${activeTab === "layers" ? styles.tabBtnActive : ""}`}
-            onClick={() => setActiveTab("layers")}
-          >
-            <MdLayers size={14} />
-            <span>Katmanlar</span>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.tabBtn} ${activeTab === "properties" ? styles.tabBtnActive : ""}`}
-            onClick={() => setActiveTab("properties")}
-          >
-            <MdTune size={14} />
-            <span>Özellikler</span>
-          </button>
-        </div>
-
+    <>
+      {isOpen && (
+        <div
+          className={styles.mobileSheetBackdrop}
+          onClick={handleCloseDrawer}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`${styles.inspectorDrawer} ${isOpen ? styles.drawerOpen : styles.drawerClosed} ${
+          isOpen && isExpandedMobile ? styles.drawerExpandedMobile : ""
+        }`}
+      >
         <button
           type="button"
-          className={styles.closeDrawerBtn}
-          onClick={onClose}
-          aria-label="Kapat"
+          className={styles.mobileSheetHandle}
+          onClick={() => setIsExpandedMobile((prev) => !prev)}
+          aria-label={isExpandedMobile ? "Paneli küçült" : "Paneli büyüt"}
         >
-          <MdClose size={18} />
+          <span className={styles.mobileSheetPill} />
         </button>
-      </div>
+
+        <div className={styles.drawerHeader}>
+          <div className={styles.tabSwitcher}>
+            <button
+              type="button"
+              className={`${styles.tabBtn} ${activeTab === "layers" ? styles.tabBtnActive : ""}`}
+              onClick={() => handleSelectTab("layers")}
+            >
+              <MdLayers size={15} />
+              <span>Katmanlar</span>
+            </button>
+
+            <button
+              type="button"
+              className={`${styles.tabBtn} ${activeTab === "properties" ? styles.tabBtnActive : ""}`}
+              onClick={() => handleSelectTab("properties")}
+            >
+              <MdTune size={15} />
+              <span>Özellikler</span>
+            </button>
+          </div>
+
+          <div className={styles.drawerHeaderActions}>
+            <button
+              type="button"
+              className={styles.mobileExpandBtn}
+              onClick={() => setIsExpandedMobile((prev) => !prev)}
+              aria-label={isExpandedMobile ? "Yarım ekrana küçült" : "Tam ekrana genişlet"}
+            >
+              {isExpandedMobile ? <MdExpandMore size={20} /> : <MdExpandLess size={20} />}
+            </button>
+
+            <button
+              type="button"
+              className={styles.closeDrawerBtn}
+              onClick={handleCloseDrawer}
+              aria-label="Kapat"
+            >
+              <MdClose size={20} />
+            </button>
+          </div>
+        </div>
 
       <div className={styles.drawerContent}>
         {/* TAB 1: Layer Hierarchy */}
@@ -585,6 +636,8 @@ export default function PlanInspector({
                       <label className={styles.fieldLabel}>Toplu Yükseklik (cm)</label>
                       <input
                         type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                         step="10"
                         placeholder="Örn: 280"
                         onFocus={(e) => e.target.select()}
@@ -641,6 +694,8 @@ export default function PlanInspector({
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(getDistance(selectedWall.start, selectedWall.end) / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -720,6 +775,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Duvar Yüksekliği (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="10"
                     value={Math.round(selectedWall.height / 10) || ""}
                     onFocus={(e) => e.target.select()}
@@ -793,6 +850,8 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                         <input
                           type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                           step="5"
                           value={selectedDoor.offset ? Math.round(selectedDoor.offset / 10) : ""}
                           onFocus={(e) => e.target.select()}
@@ -813,6 +872,8 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Sonundan Mesafe (cm)</label>
                         <input
                           type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                           step="5"
                           value={distFromEnd ? Math.round(distFromEnd / 10) : ""}
                           onFocus={(e) => e.target.select()}
@@ -912,6 +973,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Genişlik (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(selectedDoor.width / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -934,6 +997,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Yükseklik (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round((selectedDoor.height || 2100) / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -1062,6 +1127,8 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                         <input
                           type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                           step="5"
                           value={selectedWindow.offset ? Math.round(selectedWindow.offset / 10) : ""}
                           onFocus={(e) => e.target.select()}
@@ -1082,6 +1149,8 @@ export default function PlanInspector({
                         <label className={styles.fieldLabel}>Duvar Sonundan Mesafe (cm)</label>
                         <input
                           type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                           step="5"
                           value={distFromEnd ? Math.round(distFromEnd / 10) : ""}
                           onFocus={(e) => e.target.select()}
@@ -1190,6 +1259,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Genişlik (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="5"
                     value={Math.round(selectedWindow.width / 10) || ""}
                     onFocus={(e) => e.target.select()}
@@ -1212,6 +1283,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Yükseklik (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="5"
                     value={Math.round(selectedWindow.height / 10) || ""}
                     onFocus={(e) => e.target.select()}
@@ -1234,6 +1307,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Parapet / Denizlik Kotu (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="5"
                     value={selectedWindow.sillHeight !== undefined ? Math.round(selectedWindow.sillHeight / 10) : ""}
                     onFocus={(e) => e.target.select()}
@@ -1298,6 +1373,8 @@ export default function PlanInspector({
                       <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                       <input
                         type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                         step="5"
                         value={selectedElectrical.offset ? Math.round(selectedElectrical.offset / 10) : ""}
                         onFocus={(e) => e.target.select()}
@@ -1321,6 +1398,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Montaj Kotu / Yükseklik (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="5"
                     value={selectedElectrical.elevation !== undefined ? Math.round((selectedElectrical.elevation || 0) / 10) : ""}
                     onFocus={(e) => e.target.select()}
@@ -1381,6 +1460,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Petek Genişliği (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="10"
                     value={Math.round(selectedRadiator.width / 10) || ""}
                     onFocus={(e) => e.target.select()}
@@ -1428,6 +1509,8 @@ export default function PlanInspector({
                       <label className={styles.fieldLabel}>Duvar Başından Mesafe (cm)</label>
                       <input
                         type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                         step="5"
                         value={selectedRadiator.offset ? Math.round(selectedRadiator.offset / 10) : ""}
                         onFocus={(e) => e.target.select()}
@@ -1467,6 +1550,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Yükseklik (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="5"
                     value={Math.round(selectedRadiator.height / 10) || ""}
                     onFocus={(e) => e.target.select()}
@@ -1584,6 +1669,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>1. Duvara Mesafe (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={selectedLight.distWall1 ? Math.round(selectedLight.distWall1 / 10) : ""}
                       onFocus={(e) => e.target.select()}
@@ -1634,6 +1721,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>2. Duvara Mesafe (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={selectedLight.distWall2 ? Math.round(selectedLight.distWall2 / 10) : ""}
                       onFocus={(e) => e.target.select()}
@@ -1728,9 +1817,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Doğrultu (Yön)</label>
                   <div className={styles.optionRadioGroup}>
                     <label
-                      className={`${styles.optionRadioLabel} ${
-                        selectedBeam.orientation === "horizontal" ? styles.optionRadioActive : ""
-                      }`}
+                      className={`${styles.optionRadioLabel} ${selectedBeam.orientation === "horizontal" ? styles.optionRadioActive : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -1751,9 +1839,8 @@ export default function PlanInspector({
                     </label>
 
                     <label
-                      className={`${styles.optionRadioLabel} ${
-                        selectedBeam.orientation === "vertical" ? styles.optionRadioActive : ""
-                      }`}
+                      className={`${styles.optionRadioLabel} ${selectedBeam.orientation === "vertical" ? styles.optionRadioActive : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -1781,9 +1868,8 @@ export default function PlanInspector({
                     {(["interior", "center", "exterior"] as const).map((align) => (
                       <label
                         key={align}
-                        className={`${styles.optionRadioLabel} ${
-                          (selectedBeam.alignment || "center") === align ? styles.optionRadioActive : ""
-                        }`}
+                        className={`${styles.optionRadioLabel} ${(selectedBeam.alignment || "center") === align ? styles.optionRadioActive : ""
+                          }`}
                       >
                         <input
                           type="radio"
@@ -1811,6 +1897,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Genişlik / Kalınlık (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(selectedBeam.width / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -1833,6 +1921,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Sarkma Derinliği (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(selectedBeam.depth / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2007,6 +2097,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Genişlik (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(selectedChimney.width / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2029,6 +2121,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Derinlik (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(selectedChimney.depth / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2052,6 +2146,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>İç Duman Kanalı Çapı (cm)</label>
                   <input
                     type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                     step="2"
                     value={Math.round((selectedChimney.flueDiameter || 180) / 10) || ""}
                     onFocus={(e) => e.target.select()}
@@ -2139,6 +2235,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Duvar Başı (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round((selectedAC.offset || 0) / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2159,6 +2257,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Montaj Kotu (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round((selectedAC.elevation || 2400) / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2181,6 +2281,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Genişlik (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="5"
                       value={Math.round(selectedAC.width / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2203,6 +2305,8 @@ export default function PlanInspector({
                     <label className={styles.fieldLabel}>Derinlik (cm)</label>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="2"
                       value={Math.round(selectedAC.depth / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2277,6 +2381,8 @@ export default function PlanInspector({
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                     <input
                       type="number"
+                        inputMode="decimal"
+                        enterKeyHint="done"
                       step="10"
                       value={Math.round((room.walls[0]?.height || 2800) / 10) || ""}
                       onFocus={(e) => e.target.select()}
@@ -2348,9 +2454,8 @@ export default function PlanInspector({
                   <label className={styles.fieldLabel}>Zemin Kaplama Tipi</label>
                   <div className={styles.optionRadioGroup}>
                     <label
-                      className={`${styles.optionRadioLabel} ${
-                        (room.flooringType || "laminate") === "laminate" ? styles.optionRadioActive : ""
-                      }`}
+                      className={`${styles.optionRadioLabel} ${(room.flooringType || "laminate") === "laminate" ? styles.optionRadioActive : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -2370,9 +2475,8 @@ export default function PlanInspector({
                     </label>
 
                     <label
-                      className={`${styles.optionRadioLabel} ${
-                        room.flooringType === "ceramic" ? styles.optionRadioActive : ""
-                      }`}
+                      className={`${styles.optionRadioLabel} ${room.flooringType === "ceramic" ? styles.optionRadioActive : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -2397,9 +2501,8 @@ export default function PlanInspector({
                 <div className={styles.formField}>
                   <label className={styles.fieldLabel}>Asma Tavan Durumu</label>
                   <label
-                    className={`${styles.checkboxLabel} ${
-                      room.hasDrywallCeiling ? styles.checkboxActive : ""
-                    }`}
+                    className={`${styles.checkboxLabel} ${room.hasDrywallCeiling ? styles.checkboxActive : ""
+                      }`}
                   >
                     <input
                       type="checkbox"
@@ -2505,6 +2608,7 @@ export default function PlanInspector({
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

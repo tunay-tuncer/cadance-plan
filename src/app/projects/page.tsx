@@ -102,7 +102,7 @@ export default function ProjectsPage() {
                         created on Cadance Dashboard will automatically sync here.
                     </p>
                     <Link href="/" className={styles.actionButton} style={{ flex: "none" }}>
-                        Return to 3D Furniture Studio
+                        Ana Sayfaya Dön
                     </Link>
                 </div>
             )}

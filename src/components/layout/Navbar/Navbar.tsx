@@ -12,14 +12,17 @@ import styles from "./Navbar.module.css";
 export default function Navbar() {
     const { user, loading } = useAuth();
     const pathname = usePathname();
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+    const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null);
+    const [userDropdownPath, setUserDropdownPath] = useState<string | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const isMobileMenuOpen = mobileMenuPath === pathname;
+    const isUserDropdownOpen = userDropdownPath === pathname;
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-                setIsUserDropdownOpen(false);
+                setUserDropdownPath(null);
             }
         };
 
@@ -31,18 +34,30 @@ export default function Navbar() {
         };
     }, [isUserDropdownOpen]);
 
+    useEffect(() => {
+        if (!isMobileMenuOpen && !isUserDropdownOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                setMobileMenuPath(null);
+                setUserDropdownPath(null);
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isMobileMenuOpen, isUserDropdownOpen]);
+
     const handleLogout = async () => {
         try {
             await logout();
-            setIsUserDropdownOpen(false);
+            setUserDropdownPath(null);
         } catch (err) {
             console.error("Sign out error:", err);
         }
     };
 
     const closeMenus = () => {
-        setIsMobileMenuOpen(false);
-        setIsUserDropdownOpen(false);
+        setMobileMenuPath(null);
+        setUserDropdownPath(null);
     };
 
     // Hide global navigation in Plan Studio for full-screen immersive CAD workspace
@@ -56,7 +71,7 @@ export default function Navbar() {
                 <button
                     type="button"
                     className={styles.mobileHamburgerBtn}
-                    onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+                    onClick={() => setMobileMenuPath((prev) => (prev === pathname ? null : pathname))}
                     aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
                 >
                     {isMobileMenuOpen ? <MdClose size={22} /> : <MdMenu size={22} />}
@@ -93,7 +108,7 @@ export default function Navbar() {
                                 <button
                                     type="button"
                                     className={styles.userButton}
-                                    onClick={() => setIsUserDropdownOpen((prev) => !prev)}
+                                    onClick={() => setUserDropdownPath((prev) => (prev === pathname ? null : pathname))}
                                     aria-expanded={isUserDropdownOpen}
                                 >
                                     {user.photoURL ? (
@@ -155,37 +170,44 @@ export default function Navbar() {
             </div>
 
             {isMobileMenuOpen && (
-                <div className={styles.mobileMenuDrawer}>
-                    <Link
-                        href="/"
-                        className={`${styles.mobileNavLink} ${pathname === "/" ? styles.activeMobileLink : ""
-                            }`}
+                <>
+                    <div
+                        className={styles.mobileMenuBackdrop}
                         onClick={closeMenus}
-                    >
-                        <MdHome size={18} />
-                        <span>Home</span>
-                    </Link>
-                    <Link
-                        href="/projects"
-                        className={`${styles.mobileNavLink} ${pathname.startsWith("/projects") ? styles.activeMobileLink : ""
-                            }`}
-                        onClick={closeMenus}
-                    >
-                        <MdWorkOutline size={18} />
-                        <span>Projects</span>
-                    </Link>
-
-                    {!user && (
+                        aria-hidden="true"
+                    />
+                    <div className={styles.mobileMenuDrawer} role="dialog" aria-label="Navigation menu">
                         <Link
-                            href="/login"
-                            className={styles.signInButton}
-                            style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
+                            href="/"
+                            className={`${styles.mobileNavLink} ${pathname === "/" ? styles.activeMobileLink : ""
+                                }`}
                             onClick={closeMenus}
                         >
-                            SIGN IN
+                            <MdHome size={20} />
+                            <span>Home</span>
                         </Link>
-                    )}
-                </div>
+                        <Link
+                            href="/projects"
+                            className={`${styles.mobileNavLink} ${pathname.startsWith("/projects") ? styles.activeMobileLink : ""
+                                }`}
+                            onClick={closeMenus}
+                        >
+                            <MdWorkOutline size={20} />
+                            <span>Projects</span>
+                        </Link>
+
+                        {!user && (
+                            <Link
+                                href="/login"
+                                className={styles.signInButton}
+                                style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
+                                onClick={closeMenus}
+                            >
+                                SIGN IN
+                            </Link>
+                        )}
+                    </div>
+                </>
             )}
         </nav>
     );

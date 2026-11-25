@@ -2,8 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, use } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import * as THREE from "three";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeToUserProject, ProjectItem } from "@/lib/firebase/projectService";
@@ -57,6 +56,10 @@ import {
   MdWhatshot,
   MdLightbulb,
   MdArchitecture,
+  MdMoreVert,
+  MdTune,
+  MdDeleteOutline,
+  MdSwapHoriz,
 } from "react-icons/md";
 import styles from "./planStudio.module.css";
 
@@ -100,6 +103,7 @@ interface PageProps {
 
 function PlanStudioContent({ params }: PageProps) {
   const { id: projectId } = use(params);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const roomId = searchParams.get("roomId");
   const { user } = useAuth();
@@ -107,8 +111,20 @@ function PlanStudioContent({ params }: PageProps) {
   const [project, setProject] = useState<ProjectItem | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<"2d" | "3d">("2d");
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+  const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const [studioToast, setStudioToast] = useState<string | null>(null);
+  const isHydratingRef = useRef(true);
+
+  const showStudioToast = useCallback((msg: string) => {
+    setStudioToast(msg);
+    setTimeout(() => {
+      setStudioToast((prev) => (prev === msg ? null : prev));
+    }, 3000);
+  }, []);
 
   // 3D Scene Group Ref for GLTF export
   const sceneGroupRef = useRef<THREE.Group | null>(null);
@@ -140,11 +156,14 @@ function PlanStudioContent({ params }: PageProps) {
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
 
   // Selection handlers with bidirectional sync between 2D and 3D
+  // On desktop (>768px) auto-open Inspector; on phone keep canvas visible and show contextual selection bar
   const handleSelectElement = useCallback((id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null) => {
     setSelectedElementId(id);
     setSelectedElementType(type);
     setSelectedElementIds(id ? [id] : []);
-    if (id) setIsInspectorOpen(true);
+    if (id && typeof window !== "undefined" && window.innerWidth > 768) {
+      setIsInspectorOpen(true);
+    }
   }, []);
 
   const handleSelectMultiple = useCallback((ids: string[]) => {
@@ -183,7 +202,7 @@ function PlanStudioContent({ params }: PageProps) {
       setSelectedElementId(null);
       setSelectedElementType(null);
     }
-    if (ids.length > 0) {
+    if (ids.length > 0 && typeof window !== "undefined" && window.innerWidth > 768) {
       setIsInspectorOpen(true);
     }
   }, [room.walls, room.doors, room.windows, room.electrical, room.radiators, room.lighting, room.beams, room.chimneys, room.acUnits]);
@@ -328,15 +347,18 @@ function PlanStudioContent({ params }: PageProps) {
   const [lightRefWall2, setLightRefWall2] = useState<string>("");
   const [lightDist2, setLightDist2] = useState<number>(1500);
 
-  // Mobile Phones: Track Visual Viewport to elevate bottom controls above software keyboard
+  // Mobile Phones: Track Visual Viewport without double-shifting when interactiveWidget=resizes-content already resized layout
   useEffect(() => {
     if (typeof window === "undefined" || !window.visualViewport) return;
 
     const updateKeyboard = () => {
       const vv = window.visualViewport;
       if (!vv) return;
-      const kbHeight = window.innerHeight - vv.height;
-      document.documentElement.style.setProperty("--keyboard-offset", `${Math.max(0, kbHeight)}px`);
+      const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
+      const rawOffset = Math.max(0, layoutHeight - vv.height - vv.offsetTop);
+      // Ignore tiny browser toolbar fluctuations (< 80px)
+      const kbOffset = rawOffset > 80 ? rawOffset : 0;
+      document.documentElement.style.setProperty("--keyboard-offset", `${kbOffset}px`);
     };
 
     window.visualViewport.addEventListener("resize", updateKeyboard);
@@ -345,8 +367,23 @@ function PlanStudioContent({ params }: PageProps) {
     return () => {
       window.visualViewport?.removeEventListener("resize", updateKeyboard);
       window.visualViewport?.removeEventListener("scroll", updateKeyboard);
+      document.documentElement.style.setProperty("--keyboard-offset", "0px");
     };
   }, []);
+
+  // Track unsaved changes whenever room state changes after initial hydration
+  const isFirstRoomEffectRef = useRef(true);
+  useEffect(() => {
+    if (isFirstRoomEffectRef.current) {
+      isFirstRoomEffectRef.current = false;
+      return;
+    }
+    if (isHydratingRef.current) {
+      isHydratingRef.current = false;
+      return;
+    }
+    setHasUnsavedChanges(true);
+  }, [room]);
 
   // Update all walls and ceiling elevation at once
   const handleUpdateAllWallHeights = useCallback((newHeightMm: number) => {
@@ -400,30 +437,34 @@ function PlanStudioContent({ params }: PageProps) {
     const wall = room.walls.find((w) => w.id === wallId);
     const wallLen = wall ? Math.round(getDistance(wall.start, wall.end)) : 3000;
 
+    // Center the opening on the tapped point and safely clamp inside the wall bounds
+    const clampCenteredOffset = (elemWidth: number) => {
+      const centered = Math.round(offsetMm - elemWidth / 2);
+      const maxValid = Math.max(0, wallLen - elemWidth);
+      const margin = wallLen >= elemWidth + 100 ? 50 : 0;
+      return Math.max(margin, Math.min(maxValid - margin, centered));
+    };
+
     if (type === "door") {
       setTargetWallId(wallId);
-      const safeOffset = Math.max(50, Math.min(wallLen - doorWidth - 50, offsetMm));
-      setDoorOffset(safeOffset);
+      setDoorOffset(clampCenteredOffset(doorWidth));
       setIsDoorModalOpen(true);
     } else if (type === "window") {
       setTargetWallId(wallId);
-      const safeOffset = Math.max(50, Math.min(wallLen - windowWidth - 50, offsetMm));
-      setWindowOffset(safeOffset);
+      setWindowOffset(clampCenteredOffset(windowWidth));
       setIsWindowModalOpen(true);
     } else if (type === "electrical") {
       setElectricalWallId(wallId);
-      const safeOffset = Math.max(50, Math.min(wallLen - 50, Math.round(offsetMm)));
+      const safeOffset = Math.max(50, Math.min(Math.max(50, wallLen - 50), Math.round(offsetMm)));
       setElectricalOffset(safeOffset);
       setIsElectricalModalOpen(true);
     } else if (type === "radiator") {
       setRadiatorWallId(wallId);
-      const safeOffset = Math.max(50, Math.min(wallLen - radiatorWidth - 50, Math.round(offsetMm)));
-      setRadiatorOffset(safeOffset);
+      setRadiatorOffset(clampCenteredOffset(radiatorWidth));
       setIsRadiatorModalOpen(true);
     } else if (type === "acUnit") {
       setAcWallId(wallId);
-      const safeOffset = Math.max(50, Math.min(wallLen - Math.round(acWidthCm * 10) - 50, Math.round(offsetMm)));
-      setAcOffset(safeOffset);
+      setAcOffset(clampCenteredOffset(Math.round(acWidthCm * 10)));
       setIsACModalOpen(true);
     }
     setPlacingOpening(null);
@@ -445,7 +486,9 @@ function PlanStudioContent({ params }: PageProps) {
 
     const unsubRoom = subscribeToRoomPlanItem(user.uid, projectId, roomId, (fetched) => {
       if (!fetched) return;
+      isHydratingRef.current = true;
       setRoom(fetched);
+      setHasUnsavedChanges(false);
 
       // Set active point to end of last wall
       if (fetched.walls && fetched.walls.length > 0) {
@@ -941,10 +984,10 @@ function PlanStudioContent({ params }: PageProps) {
   };
 
   // 11. Save to Firestore
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     if (!user?.uid || !projectId || !roomId) {
-      alert("Lütfen giriş yapın.");
-      return;
+      showStudioToast("Kaydetmek için lütfen giriş yapın.");
+      return false;
     }
 
     setSaving(true);
@@ -976,31 +1019,74 @@ function PlanStudioContent({ params }: PageProps) {
         acUnits: room.acUnits || [],
       });
 
+      setHasUnsavedChanges(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
+      return true;
     } catch (err) {
       console.error("Save error:", err);
-      alert("Plan kaydedilemedi.");
+      showStudioToast("Plan kaydedilemedi. Lütfen tekrar deneyin.");
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  const handleBackNavigation = () => {
+    if (hasUnsavedChanges) {
+      setIsExitConfirmOpen(true);
+    } else {
+      router.push(`/projects/${projectId}`);
+    }
+  };
+
+  // Human-readable summary for the mobile contextual selection bar
+  const selectionSummary = (() => {
+    if (selectedElementIds.length > 1) {
+      return `${selectedElementIds.length} Öğe Seçili`;
+    }
+    if (!selectedElementId || !selectedElementType) return null;
+    if (selectedElementType === "wall") {
+      const w = room.walls.find((x) => x.id === selectedElementId);
+      const cm = w ? Math.round(getDistance(w.start, w.end) / 10) : 0;
+      return `Duvar • ${cm} cm`;
+    }
+    if (selectedElementType === "door") {
+      const d = room.doors.find((x) => x.id === selectedElementId);
+      return `Kapı • ${d ? Math.round(d.width / 10) : 90} cm`;
+    }
+    if (selectedElementType === "window") {
+      const w = room.windows.find((x) => x.id === selectedElementId);
+      return `Pencere • ${w ? Math.round(w.width / 10) : 120} cm`;
+    }
+    if (selectedElementType === "electrical") return "Elektrik Elemanı";
+    if (selectedElementType === "radiator") return "Doğalgaz Peteği";
+    if (selectedElementType === "lighting") return "Aydınlatma";
+    if (selectedElementType === "beam") return "Taşıyıcı Kiriş";
+    if (selectedElementType === "chimney") return "Baca";
+    if (selectedElementType === "acUnit") return "Klima Ünitesi";
+    return "Seçili Öğe";
+  })();
 
   // 8. Export AutoCAD DXF / DWG
   const handleExportDxf = () => {
     const dxfString = exportRoomToDxf(room, project?.name || "Floor Plan");
     const filename = `${room.name.toLowerCase().replace(/[^a-z0-9_-]/g, "_")}_plan.dxf`;
     downloadDxfFile(dxfString, filename);
+    setIsOverflowOpen(false);
+    showStudioToast("AutoCAD .DXF dosyası indirildi.");
   };
 
   // 9. Export 3D GLTF / GLB
   const handleExportGltf = async () => {
+    setIsOverflowOpen(false);
     if (!sceneGroupRef.current) {
-      alert("3D model yükleniyor, lütfen 3D moduna geçip tekrar deneyin.");
+      showStudioToast("3D model yükleniyor — 3D moda geçip tekrar deneyin.");
       return;
     }
     const filename = `${room.name.toLowerCase().replace(/[^a-z0-9_-]/g, "_")}_3d_bim`;
     await exportRoomSceneToGltf(sceneGroupRef.current, filename);
+    showStudioToast("3D .GLTF modeli indirildi.");
   };
 
   return (
@@ -1010,10 +1096,15 @@ function PlanStudioContent({ params }: PageProps) {
         {/* Top Floating Overlay Bar */}
         <header className={styles.topOverlayBar}>
           <div className={styles.topLeftGroup}>
-            <Link href={`/projects/${projectId}`} className={styles.backBtn}>
-              <FaChevronLeft size={10} />
+            <button
+              type="button"
+              onClick={handleBackNavigation}
+              className={styles.backBtn}
+              aria-label="Odalara dön"
+            >
+              <FaChevronLeft size={12} />
               <span>Odalar</span>
-            </Link>
+            </button>
 
             {project?.name && (
               <span className={styles.projectBadge}>
@@ -1026,32 +1117,38 @@ function PlanStudioContent({ params }: PageProps) {
             </span>
 
             {/* Mode Switcher: 2D Plan vs 3D BIM */}
-            <div className={styles.modeSwitcher}>
+            <div className={styles.modeSwitcher} role="tablist" aria-label="Görünüm Modu">
               <button
                 type="button"
+                role="tab"
+                aria-selected={workspaceMode === "2d"}
                 className={`${styles.modeBtn} ${workspaceMode === "2d" ? styles.modeBtnActive : ""}`}
                 onClick={() => setWorkspaceMode("2d")}
               >
                 <MdDesignServices size={15} />
-                <span>2D Plan</span>
+                <span className={styles.modeLabelFull}>2D Plan</span>
+                <span className={styles.modeLabelShort}>2D</span>
               </button>
 
               <button
                 type="button"
+                role="tab"
+                aria-selected={workspaceMode === "3d"}
                 className={`${styles.modeBtn} ${workspaceMode === "3d" ? styles.modeBtnActive : ""}`}
                 onClick={() => setWorkspaceMode("3d")}
               >
                 <Md3dRotation size={15} />
-                <span>3D BIM</span>
+                <span className={styles.modeLabelFull}>3D BIM</span>
+                <span className={styles.modeLabelShort}>3D</span>
               </button>
             </div>
           </div>
 
           <div className={styles.topRightGroup}>
-            {/* Export DWG / DXF */}
+            {/* Export DWG / DXF (Desktop) */}
             <button
               type="button"
-              className={styles.actionBtn}
+              className={`${styles.actionBtn} ${styles.desktopOnlyBtn}`}
               onClick={handleExportDxf}
               title="AutoCAD .DWG / .DXF 2D Kat Planı İndir"
             >
@@ -1059,10 +1156,10 @@ function PlanStudioContent({ params }: PageProps) {
               <span>.DWG / .DXF</span>
             </button>
 
-            {/* Export 3D GLTF */}
+            {/* Export 3D GLTF (Desktop) */}
             <button
               type="button"
-              className={styles.actionBtn}
+              className={`${styles.actionBtn} ${styles.desktopOnlyBtn}`}
               onClick={handleExportGltf}
               title="3D BIM Modelini .GLTF / .GLB Olarak İndir"
             >
@@ -1070,10 +1167,10 @@ function PlanStudioContent({ params }: PageProps) {
               <span>3D .GLTF</span>
             </button>
 
-            {/* Toggle Inspector / Layers */}
+            {/* Toggle Inspector / Layers (Desktop) */}
             <button
               type="button"
-              className={styles.actionBtn}
+              className={`${styles.actionBtn} ${styles.desktopOnlyBtn}`}
               onClick={() => setIsInspectorOpen((prev) => !prev)}
             >
               <MdLayers size={16} />
@@ -1086,12 +1183,132 @@ function PlanStudioContent({ params }: PageProps) {
               className={`${styles.saveBtn} ${saveSuccess ? styles.saveBtnSuccess : ""}`}
               onClick={handleSave}
               disabled={saving}
+              aria-label="Planı Kaydet"
             >
               {saveSuccess ? <MdCheck size={16} /> : <MdSave size={16} />}
-              <span>{saving ? "Kaydediliyor..." : saveSuccess ? "Kaydedildi" : "Kaydet"}</span>
+              <span>{saving ? "..." : saveSuccess ? "Kaydedildi" : "Kaydet"}</span>
+              {hasUnsavedChanges && !saving && !saveSuccess && (
+                <span className={styles.unsavedDot} aria-label="Kaydedilmemiş değişiklik var" />
+              )}
             </button>
+
+            {/* Mobile Overflow Menu Trigger (Layers, DXF, GLTF) */}
+            <div className={styles.mobileOverflowWrapper}>
+              <button
+                type="button"
+                className={styles.mobileOverflowBtn}
+                onClick={() => setIsOverflowOpen((prev) => !prev)}
+                aria-expanded={isOverflowOpen}
+                aria-label="Diğer araçlar ve dışa aktarma"
+              >
+                <MdMoreVert size={20} />
+              </button>
+
+              {isOverflowOpen && (
+                <>
+                  <div
+                    className={styles.overflowBackdrop}
+                    onClick={() => setIsOverflowOpen(false)}
+                    aria-hidden="true"
+                  />
+                  <div className={styles.overflowMenu} role="menu">
+                    <div className={styles.overflowMenuHeader}>
+                      <span className={styles.overflowRoomName}>{room.name}</span>
+                      {project?.name && (
+                        <span className={styles.overflowProjectName}>{project.name}</span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={styles.overflowMenuItem}
+                      onClick={() => {
+                        setIsOverflowOpen(false);
+                        setIsInspectorOpen(true);
+                      }}
+                    >
+                      <MdLayers size={18} color="var(--accent)" />
+                      <span>Katmanlar & Özellikler</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={styles.overflowMenuItem}
+                      onClick={handleExportDxf}
+                    >
+                      <MdFileDownload size={18} color="var(--accent)" />
+                      <span>AutoCAD .DXF / .DWG İndir</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={styles.overflowMenuItem}
+                      onClick={handleExportGltf}
+                    >
+                      <MdFileDownload size={18} color="#38bdf8" />
+                      <span>3D .GLTF Model İndir</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
+
+        {/* Mobile Contextual Selection Pill (hidden while placing an opening so it never covers the placement banner) */}
+        {selectionSummary && !isInspectorOpen && !placingOpening && (
+          <div className={styles.mobileSelectionBar} role="region" aria-label="Seçili öğe araçları">
+            <span className={styles.selectionSummaryText}>{selectionSummary}</span>
+            <div className={styles.selectionBarActions}>
+              <button
+                type="button"
+                className={styles.selectionEditBtn}
+                onClick={() => setIsInspectorOpen(true)}
+              >
+                <MdTune size={16} />
+                <span>Düzenle</span>
+              </button>
+
+              {selectedElementType === "wall" && selectedElementIds.length <= 1 && (
+                <button
+                  type="button"
+                  className={styles.selectionIconBtn}
+                  onClick={handleFlipActiveWall}
+                  aria-label="Duvar yönünü çevir"
+                  title="Duvar yönünü çevir"
+                >
+                  <MdSwapHoriz size={18} />
+                </button>
+              )}
+
+              <button
+                type="button"
+                className={`${styles.selectionIconBtn} ${styles.selectionDeleteBtn}`}
+                onClick={() => {
+                  const ids = selectedElementIds.length > 0 ? selectedElementIds : selectedElementId ? [selectedElementId] : [];
+                  if (ids.length > 0) handleDeleteElements(ids);
+                }}
+                aria-label="Seçili öğeyi sil"
+                title="Sil"
+              >
+                <MdDeleteOutline size={18} />
+              </button>
+
+              <button
+                type="button"
+                className={styles.selectionIconBtn}
+                onClick={handleDeselect}
+                aria-label="Seçimi temizle"
+                title="Seçimi kapat"
+              >
+                <MdClose size={18} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 2D Canvas Viewport */}
         <div
@@ -1283,6 +1500,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Kapı Yüksekliği (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={doorHeight ? Math.round(doorHeight / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1296,6 +1515,8 @@ function PlanStudioContent({ params }: PageProps) {
               <label className={styles.formLabel}>Duvar Başından Mesafe (cm)</label>
               <input
                 type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                 step="5"
                 value={doorOffset ? Math.round(doorOffset / 10) : ""}
                 onFocus={(e) => e.target.select()}
@@ -1431,6 +1652,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Genişlik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={windowWidth ? Math.round(windowWidth / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1443,6 +1666,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Yükseklik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={windowHeight ? Math.round(windowHeight / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1457,6 +1682,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Parapet Kotu (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={windowSill !== undefined ? Math.round(windowSill / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1470,6 +1697,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı Mesafe (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={windowOffset ? Math.round(windowOffset / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1546,6 +1775,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={electricalOffset ? Math.round(electricalOffset / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1558,6 +1789,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Montaj Kotu (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={electricalElevation !== undefined ? Math.round(electricalElevation / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1633,6 +1866,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={radiatorOffset ? Math.round(radiatorOffset / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1645,6 +1880,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Yükseklik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={radiatorHeight ? Math.round(radiatorHeight / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1703,6 +1940,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>1. Duvara Mesafe (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={lightDist1 ? Math.round(lightDist1 / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1715,6 +1954,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>2. Duvara Mesafe (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={lightDist2 ? Math.round(lightDist2 / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1806,6 +2047,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Kalınlık / Genişlik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={beamWidthCm || ""}
                   onFocus={(e) => e.target.select()}
@@ -1818,6 +2061,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Sarkma Derinliği (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={beamDepthCm || ""}
                   onFocus={(e) => e.target.select()}
@@ -1873,6 +2118,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Genişlik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={chimneyWidthCm || ""}
                   onFocus={(e) => e.target.select()}
@@ -1885,6 +2132,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Derinlik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={chimneyDepthCm || ""}
                   onFocus={(e) => e.target.select()}
@@ -1898,6 +2147,8 @@ function PlanStudioContent({ params }: PageProps) {
               <label className={styles.formLabel}>İç Duman Kanalı Çapı (cm)</label>
               <input
                 type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                 step="2"
                 value={chimneyFlueCm || ""}
                 onFocus={(e) => e.target.select()}
@@ -1976,6 +2227,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Duvar Başı (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={acOffset ? Math.round(acOffset / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1988,6 +2241,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Montaj Kotu (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={acElevation ? Math.round(acElevation / 10) : ""}
                   onFocus={(e) => e.target.select()}
@@ -1997,11 +2252,13 @@ function PlanStudioContent({ params }: PageProps) {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.4rem" }}>
+            <div className={styles.modalGridThree}>
               <div className={styles.formField}>
                 <label className={styles.formLabel}>Genişlik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="5"
                   value={acWidthCm || ""}
                   onFocus={(e) => e.target.select()}
@@ -2014,6 +2271,8 @@ function PlanStudioContent({ params }: PageProps) {
                 <label className={styles.formLabel}>Derinlik (cm)</label>
                 <input
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="2"
                   value={acDepthCm || ""}
                   onFocus={(e) => e.target.select()}
@@ -2022,7 +2281,7 @@ function PlanStudioContent({ params }: PageProps) {
                 />
               </div>
 
-              <div className={styles.formField}>
+              <div className={`${styles.formField} ${styles.modalGridSpanFullMobile}`}>
                 <label className={styles.formLabel}>Kapasite (BTU)</label>
                 <select
                   value={acCapacityBtu}
@@ -2046,6 +2305,63 @@ function PlanStudioContent({ params }: PageProps) {
               Klimayı Odaya Ekle
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Unsaved Changes Exit Guard Dialog */}
+      {isExitConfirmOpen && (
+        <div className={styles.modalBackdrop} onClick={() => setIsExitConfirmOpen(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Kaydedilmemiş değişiklikler">
+            <div className={styles.modalHead}>
+              <h2 className={styles.modalTitle}>Kaydedilmemiş Değişiklikler</h2>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setIsExitConfirmOpen(false)}
+                aria-label="Kapat"
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
+            <p className={styles.exitDialogDesc}>
+              Çizimde kaydetmediğiniz değişiklikler var. Odalar listesine dönmeden önce kaydetmek ister misiniz?
+            </p>
+            <div className={styles.exitDialogActions}>
+              <button
+                type="button"
+                className={styles.saveBtn}
+                style={{ width: "100%", justifyContent: "center", minHeight: "44px" }}
+                disabled={saving}
+                onClick={async () => {
+                  const ok = await handleSave();
+                  if (ok) {
+                    setIsExitConfirmOpen(false);
+                    router.push(`/projects/${projectId}`);
+                  }
+                }}
+              >
+                <MdSave size={18} />
+                <span>{saving ? "Kaydediliyor..." : "Kaydet ve Çık"}</span>
+              </button>
+              <button
+                type="button"
+                className={styles.exitDiscardBtn}
+                onClick={() => {
+                  setIsExitConfirmOpen(false);
+                  router.push(`/projects/${projectId}`);
+                }}
+              >
+                Kaydetmeden Çık
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Studio Toast */}
+      {studioToast && (
+        <div className={styles.studioToast} role="status" aria-live="polite">
+          {studioToast}
         </div>
       )}
     </div>

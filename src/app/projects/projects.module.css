@@ -190,12 +190,13 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.6rem 1rem;
+    padding: 0.65rem 1rem;
+    min-height: 44px;
     border-radius: 8px;
     background: rgba(41, 114, 245, 0.15);
     border: 1px solid rgba(41, 114, 245, 0.3);
     color: #93c5fd;
-    font-size: 0.775rem;
+    font-size: 0.8125rem;
     font-weight: 600;
     text-decoration: none;
     transition: all 0.2s ease;
@@ -204,9 +205,9 @@
 
 .actionButton:hover {
     background: var(--accent);
-    color: #ffffff;
+    color: #0d0d12;
     border-color: var(--accent);
-    box-shadow: 0 0 16px rgba(41, 114, 245, 0.4);
+    box-shadow: 0 0 16px rgba(41, 245, 126, 0.35);
 }
 
 .stateCard {
@@ -253,11 +254,12 @@
 
 .loginPromptBtn {
     background: var(--accent);
-    color: #ffffff;
+    color: #0d0d12;
     padding: 0.75rem 1.75rem;
+    min-height: 44px;
     border-radius: 8px;
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: 700;
     text-decoration: none;
     transition: all 0.2s ease;
     display: inline-flex;
@@ -267,7 +269,7 @@
 
 .loginPromptBtn:hover {
     background: var(--accent-hover);
-    box-shadow: 0 0 20px rgba(41, 114, 245, 0.5);
+    box-shadow: 0 0 20px rgba(41, 245, 126, 0.4);
 }
 
 .skeletonGrid {
@@ -299,7 +301,7 @@
 
 @media (max-width: 768px) {
     .pageContainer {
-        padding: 5rem 1rem 2rem;
+        padding: calc(5rem + env(safe-area-inset-top, 0px)) 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
         gap: 1.5rem;
     }
 
@@ -321,7 +323,7 @@
 
     .statBadge {
         flex: 1;
-        min-width: 120px;
+        min-width: 110px;
         justify-content: center;
     }
 
@@ -333,5 +335,8 @@
 
     .projectCard {
         padding: 1.25rem;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background: rgba(18, 18, 22, 0.92);
     }
 }

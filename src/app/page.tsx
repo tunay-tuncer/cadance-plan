@@ -42,9 +42,9 @@ export default function Home() {
 
           <div className={styles.actionRow}>
             <Link href="/projects" className={styles.primaryBtn}>
-              <MdWorkOutline size={16} />
-              <span>Projeleri Görüntüle / View Projects</span>
-              <MdArrowForward size={14} />
+              <MdWorkOutline size={18} />
+              <span>Projeleri Görüntüle</span>
+              <MdArrowForward size={16} />
             </Link>
           </div>
         </div>

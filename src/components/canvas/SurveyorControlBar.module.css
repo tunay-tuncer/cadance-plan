@@ -355,31 +355,69 @@
   gap: 0.35rem;
 }
 
+.closedStatsText {
+  font-size: 0.8rem;
+  color: var(--textMuted);
+}
+
+/* Mobile-only helpers (hidden on desktop) */
+.mobileCollapseHandle,
+.mobileClosedDock,
+.mobileAddTray {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .barContainer {
-    padding: 0.55rem 0.65rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.35rem 0.65rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
     border-radius: 16px 16px 0 0;
     max-width: 100%;
+    gap: 0.45rem;
+  }
+
+  .barContainerCollapsed {
+    padding-bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobileCollapseHandle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 30px;
+    padding: 0.15rem 0.35rem;
+    color: var(--textNav);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .collapseSummary {
+    color: var(--textMain);
   }
 
   .draftingRow {
     display: grid;
-    grid-template-columns: 110px 1fr;
+    grid-template-columns: 132px 1fr;
     grid-template-rows: auto auto;
     gap: 0.5rem;
     align-items: stretch;
   }
 
-  /* D-Pad occupies column 1, row 1 */
+  /* D-Pad occupies column 1, row 1 — 42px thumb-friendly targets */
   .dpadArea {
     grid-column: 1;
     grid-row: 1;
-    width: 110px;
-    height: 110px;
-    grid-template-columns: repeat(3, 34px);
-    grid-template-rows: repeat(3, 34px);
-    gap: 2px;
-    padding: 2px;
+    width: 132px;
+    height: 132px;
+    grid-template-columns: repeat(3, 40px);
+    grid-template-rows: repeat(3, 40px);
+    gap: 3px;
+    padding: 3px;
     box-sizing: border-box;
   }
 
@@ -398,7 +436,7 @@
   .inputRow {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.35rem;
     width: 100%;
     min-width: 0;
   }
@@ -414,8 +452,9 @@
   .alignBtn {
     flex: 1;
     text-align: center;
-    padding: 0.28rem 0.2rem;
-    font-size: 0.68rem;
+    min-height: 34px;
+    padding: 0.32rem 0.2rem;
+    font-size: 0.72rem;
     border-radius: 5px;
   }
 
@@ -427,15 +466,15 @@
   .mmInput {
     width: 100%;
     min-width: 0;
-    padding: 0.45rem 2.2rem 0.45rem 0.65rem;
-    font-size: 1.2rem;
-    height: 38px;
+    padding: 0.45rem 2.3rem 0.45rem 0.65rem;
+    font-size: 1.15rem;
+    height: 44px;
     box-sizing: border-box;
   }
 
   .unitSuffix {
     right: 0.55rem;
-    font-size: 0.72rem;
+    font-size: 0.76rem;
   }
 
   .presetsRow {
@@ -452,8 +491,9 @@
   }
 
   .presetBtn {
-    padding: 0.2rem 0.45rem;
-    font-size: 0.68rem;
+    padding: 0.35rem 0.55rem;
+    min-height: 34px;
+    font-size: 0.74rem;
     flex-shrink: 0;
   }
 
@@ -470,9 +510,9 @@
   .drawWallBtn {
     width: 100%;
     padding: 0.65rem 0.75rem;
-    font-size: 0.88rem;
+    font-size: 0.9rem;
     font-weight: 800;
-    min-height: 42px;
+    min-height: 44px;
     box-sizing: border-box;
   }
 
@@ -485,9 +525,9 @@
   .undoBtn {
     flex: 1;
     padding: 0.45rem 0.4rem;
-    font-size: 0.74rem;
+    font-size: 0.76rem;
     justify-content: center;
-    min-height: 38px;
+    min-height: 42px;
     box-sizing: border-box;
     white-space: nowrap;
   }
@@ -495,18 +535,18 @@
   .closeRoomBtn {
     flex: 1.3;
     padding: 0.45rem 0.5rem;
-    font-size: 0.76rem;
+    font-size: 0.78rem;
     justify-content: center;
-    min-height: 38px;
+    min-height: 42px;
     box-sizing: border-box;
     white-space: nowrap;
   }
 
-  /* Closed Room State on Mobile */
+  /* Closed Room State on Mobile: Compact Single Row + Expandable Add Tray */
   .closedBar {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.55rem;
+    gap: 0.45rem;
   }
 
   .closedInfo {
@@ -514,28 +554,132 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    flex-wrap: wrap;
-    gap: 0.35rem;
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+  }
+
+  .closedStatsText {
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .closedArea {
-    font-size: 1.05rem;
+    font-size: 1rem;
+    flex-shrink: 0;
   }
 
   .closedActions {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.35rem;
+    display: none;
+  }
+
+  .mobileClosedDock {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
     width: 100%;
   }
 
-  .actionBtnSecondary {
-    padding: 0.52rem 0.25rem;
-    font-size: 0.72rem;
+  .mobileAddTriggerBtn {
+    flex: 1.5;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.85rem;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #0d0d12;
+    font-size: 0.86rem;
+    font-weight: 800;
+    border: none;
+    cursor: pointer;
+  }
+
+  .mobileAddTriggerActive {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--textWhite);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .mobileEditPerimeterBtn {
+    flex: 1;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--textMain);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mobileAddTray {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .mobileAddTrayHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--textNav);
+  }
+
+  .trayCloseBtn {
+    min-width: 34px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--textMuted);
+    border-radius: 6px;
+  }
+
+  .mobileAddGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.35rem;
+  }
+
+  .mobileAddGrid .actionBtnSecondary {
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.55rem 0.25rem;
+    min-height: 54px;
+    font-size: 0.7rem;
     justify-content: center;
     text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 360px) {
+  .draftingRow {
+    grid-template-columns: 118px 1fr;
+  }
+
+  .dpadArea {
+    width: 118px;
+    height: 118px;
+    grid-template-columns: repeat(3, 36px);
+    grid-template-rows: repeat(3, 36px);
+  }
+
+  .mobileAddGrid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

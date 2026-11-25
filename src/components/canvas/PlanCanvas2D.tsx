@@ -63,6 +63,23 @@ interface TempDimHitbox {
   wallHitCoord?: number;
 }
 
+// Pure geometry helpers (module scope)
+function getDistanceToSegment(p: Point2D, a: Point2D, b: Point2D): number {
+  const l2 = Math.hypot(b.x - a.x, b.y - a.y) ** 2;
+  if (l2 === 0) return getDistance(p, a);
+  let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return getDistance(p, { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
+}
+
+function getOffsetAlongSegment(p: Point2D, a: Point2D, b: Point2D): number {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len <= 0) return 0;
+  const dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
+  const t = Math.max(0, Math.min(1, dot / (len * len)));
+  return Math.round(t * len);
+}
+
 export default function PlanCanvas2D({
   room,
   activePoint,
@@ -102,12 +119,117 @@ export default function PlanCanvas2D({
 
   // Viewport Transform (origin at center of canvas)
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState<number>(0.12); // 1 mm = 0.12 px (approx 1m = 120px)
+  const [zoom, setZoom] = useState<number>(0.1); // 1 mm = 0.1 px (1m = 100px)
 
-  // Dragging state
+  // Always-fresh refs for camera animations & smart framing without re-triggering effects
+  const panRef = useRef(pan);
+  const zoomRef = useRef(zoom);
+  const cameraAnimRef = useRef<number | null>(null);
+  const initializedRoomIdRef = useRef<string | null>(null);
+  const prevWallCountRef = useRef<number>(room.walls.length);
+  const prevIsClosedRef = useRef<boolean>(room.isClosed);
+
+  useEffect(() => {
+    panRef.current = pan;
+    zoomRef.current = zoom;
+  }, [pan, zoom]);
+
+  const cancelCameraAnimation = useCallback(() => {
+    if (cameraAnimRef.current !== null) {
+      cancelAnimationFrame(cameraAnimRef.current);
+      cameraAnimRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => cancelCameraAnimation();
+  }, [cancelCameraAnimation]);
+
+  // Smoothly animate pan & zoom via requestAnimationFrame (jumps in 1 frame when durationMs <= 0)
+  const animateCameraTo = useCallback(
+    (targetPan: { x: number; y: number }, targetZoom: number, durationMs = 240) => {
+      cancelCameraAnimation();
+
+      if (durationMs <= 0) {
+        cameraAnimRef.current = requestAnimationFrame(() => {
+          panRef.current = targetPan;
+          zoomRef.current = targetZoom;
+          setPan(targetPan);
+          setZoom(targetZoom);
+          cameraAnimRef.current = null;
+        });
+        return;
+      }
+
+      const startPan = { ...panRef.current };
+      const startZoom = zoomRef.current;
+      const startTime = performance.now();
+
+      const step = (now: number) => {
+        const t = Math.min(1, (now - startTime) / durationMs);
+        // Cubic ease-out for natural CAD camera glide
+        const ease = 1 - Math.pow(1 - t, 3);
+
+        const nextPan = {
+          x: startPan.x + (targetPan.x - startPan.x) * ease,
+          y: startPan.y + (targetPan.y - startPan.y) * ease,
+        };
+        const nextZoom = startZoom + (targetZoom - startZoom) * ease;
+
+        panRef.current = nextPan;
+        zoomRef.current = nextZoom;
+        setPan(nextPan);
+        setZoom(nextZoom);
+
+        if (t < 1) {
+          cameraAnimRef.current = requestAnimationFrame(step);
+        } else {
+          cameraAnimRef.current = null;
+        }
+      };
+
+      cameraAnimRef.current = requestAnimationFrame(step);
+    },
+    [cancelCameraAnimation]
+  );
+
+  // Measure live HUD insets (top overlay + bottom SurveyorControlBar) so camera always frames in the visible canvas slot
+  const getVisibleInsets = useCallback((rect: DOMRect) => {
+    const isMobile = rect.width <= 768;
+    const topInset = isMobile ? 64 : 76;
+    const sideMargin = isMobile ? 28 : 80;
+    const rightMargin = isMobile ? 54 : 80; // Clear floating zoom/tool buttons on right
+
+    let bottomInset = isMobile ? (room.isClosed ? 124 : 285) : 140;
+    const barEl = containerRef.current?.parentElement?.querySelector<HTMLElement>("[data-surveyor-bar='true']");
+    if (barEl) {
+      const barHeight = barEl.getBoundingClientRect().height;
+      if (barHeight > 20) {
+        bottomInset = barHeight + 16;
+      }
+    }
+
+    return { topInset, bottomInset, sideMargin, rightMargin, isMobile };
+  }, [room.isClosed]);
+
+  // Dragging & Multi-Touch Pinch state
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartRef = useRef<{
+    dist: number;
+    zoom: number;
+    midWorld: { x: number; y: number };
+  } | null>(null);
+  const didPinchRef = useRef(false);
+
+  // In-app Dimension Popover (replaces native window.prompt for mobile numeric keypad UX)
+  const [dimEditState, setDimEditState] = useState<{
+    hitbox: TempDimHitbox;
+    label: string;
+    value: string;
+  } | null>(null);
 
   // ResizeObserver to detect any container size / resolution changes immediately
   useEffect(() => {
@@ -167,31 +289,207 @@ export default function PlanCanvas2D({
     [pan, zoom]
   );
 
-  // Auto-fit room to viewport
-  const handleAutoFit = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const bbox = getWallsBoundingBox(room.walls.length > 0 ? room.walls : [
-      { id: "temp", start: { x: 0, y: 0 }, end: activePoint, thickness: 150, height: 2800 },
-    ]);
+  // Auto-fit room to the exact visible viewport slot (CSS pixels, live HUD insets)
+  const computeFitCamera = useCallback(
+    (wallsToFit: WallElement[], cursorPt: Point2D) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
 
-    const margin = 100;
-    const availW = Math.max(100, canvas.width - margin * 2);
-    const availH = Math.max(100, canvas.height - margin * 2);
+      const { topInset, bottomInset, sideMargin, rightMargin, isMobile } = getVisibleInsets(rect);
+      const availW = Math.max(100, rect.width - sideMargin - rightMargin);
+      const availH = Math.max(100, rect.height - topInset - bottomInset);
 
-    const fitZoom = Math.min(availW / Math.max(1000, bbox.width), availH / Math.max(1000, bbox.height));
-    const clampedZoom = Math.max(0.04, Math.min(fitZoom * 0.85, 0.4));
+      // Compute visible slot center offset from raw canvas center
+      const visCenterX = sideMargin + availW / 2;
+      const visCenterY = topInset + availH / 2;
+      const dxCenterPx = visCenterX - rect.width / 2;
+      const dyCenterPx = visCenterY - rect.height / 2;
 
-    setZoom(Number(clampedZoom.toFixed(3)));
-    setPan({ x: -bbox.centerX, y: -bbox.centerY });
-  }, [room.walls, activePoint]);
+      if (wallsToFit.length === 0) {
+        const defaultZoom = isMobile ? 0.075 : 0.11;
+        return {
+          zoom: defaultZoom,
+          pan: {
+            x: -cursorPt.x + dxCenterPx / defaultZoom,
+            y: -cursorPt.y - dyCenterPx / defaultZoom,
+          },
+        };
+      }
 
-  // Initial fit on room load
+      const bbox = getWallsBoundingBox(wallsToFit);
+      // Use a sensible minimum span (2500mm) so a single short wall doesn't zoom in excessively
+      const effectiveW = Math.max(2500, bbox.width);
+      const effectiveH = Math.max(2500, bbox.height);
+
+      const fitZoom = Math.min(availW / effectiveW, availH / effectiveH) * 0.82;
+      const maxAutoZoom = isMobile ? 0.16 : 0.22;
+      const clampedZoom = Number(Math.max(0.02, Math.min(fitZoom, maxAutoZoom)).toFixed(4));
+
+      return {
+        zoom: clampedZoom,
+        pan: {
+          x: -bbox.centerX + dxCenterPx / clampedZoom,
+          y: -bbox.centerY - dyCenterPx / clampedZoom,
+        },
+      };
+    },
+    [getVisibleInsets]
+  );
+
+  const handleAutoFit = useCallback(
+    (animate = true) => {
+      const target = computeFitCamera(room.walls, activePoint);
+      if (!target) return;
+      animateCameraTo(target.pan, target.zoom, animate ? 240 : 0);
+    },
+    [computeFitCamera, room.walls, activePoint, animateCameraTo]
+  );
+
+  // Zoom around the center of the visible canvas area (for +/- buttons)
+  const handleStepZoom = useCallback(
+    (factor: number) => {
+      cancelCameraAnimation();
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        setZoom((prev) => Math.max(0.015, Math.min(prev * factor, 0.8)));
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const { topInset, bottomInset, sideMargin, rightMargin } = getVisibleInsets(rect);
+      const anchorX = sideMargin + Math.max(100, rect.width - sideMargin - rightMargin) / 2;
+      const anchorY = topInset + Math.max(100, rect.height - topInset - bottomInset) / 2;
+
+      const curZoom = zoomRef.current;
+      const curPan = panRef.current;
+      const newZoom = Math.max(0.015, Math.min(curZoom * factor, 0.8));
+
+      const anchorWorldX = (anchorX - rect.width / 2) / curZoom - curPan.x;
+      const anchorWorldY = (rect.height / 2 - anchorY) / curZoom - curPan.y;
+      const newPan = {
+        x: (anchorX - rect.width / 2) / newZoom - anchorWorldX,
+        y: (rect.height / 2 - anchorY) / newZoom - anchorWorldY,
+      };
+
+      animateCameraTo(newPan, newZoom, 140);
+    },
+    [cancelCameraAnimation, getVisibleInsets, animateCameraTo]
+  );
+
+  // 1. Initial fit ONCE per room load (wait until canvas has non-zero dimensions)
   useEffect(() => {
-    if (room.walls.length > 0) {
-      handleAutoFit();
+    if (canvasDimensions.width <= 0 || canvasDimensions.height <= 0) return;
+
+    const needsInit = initializedRoomIdRef.current !== room.id;
+    // Also refit once if room hydrated from empty -> existing walls right after initial mount
+    const hydratedWalls =
+      !needsInit && prevWallCountRef.current === 0 && room.walls.length > 1;
+
+    if (needsInit || hydratedWalls) {
+      initializedRoomIdRef.current = room.id;
+      prevWallCountRef.current = room.walls.length;
+      prevIsClosedRef.current = room.isClosed;
+      const target = computeFitCamera(room.walls, activePoint);
+      if (target) {
+        animateCameraTo(target.pan, target.zoom, 0);
+      }
     }
-  }, [room.id, handleAutoFit, room.walls.length]);
+  }, [room.id, room.walls, room.isClosed, activePoint, canvasDimensions.width, canvasDimensions.height, computeFitCamera, animateCameraTo]);
+
+  // 2. Smart camera follow when adding walls or closing the room (never snaps/fights manual edits!)
+  useEffect(() => {
+    if (initializedRoomIdRef.current !== room.id) return;
+
+    const prevCount = prevWallCountRef.current;
+    const prevClosed = prevIsClosedRef.current;
+    prevWallCountRef.current = room.walls.length;
+    prevIsClosedRef.current = room.isClosed;
+
+    // Room just closed -> smoothly frame completed room in the newly expanded viewport
+    if (!prevClosed && room.isClosed && room.walls.length > 0) {
+      const target = computeFitCamera(room.walls, activePoint);
+      if (target) animateCameraTo(target.pan, target.zoom, 280);
+      return;
+    }
+
+    // New wall added while drafting -> smoothly keep the room & active cursor comfortably framed
+    // without jarring zoom-in jumps!
+    if (room.walls.length > prevCount && !room.isClosed) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const { topInset, bottomInset, sideMargin, rightMargin } = getVisibleInsets(rect);
+      const safeLeft = sideMargin + 16;
+      const safeRight = rect.width - rightMargin - 16;
+      const safeTop = topInset + 16;
+      const safeBottom = rect.height - bottomInset - 16;
+      const safeW = Math.max(80, safeRight - safeLeft);
+      const safeH = Math.max(80, safeBottom - safeTop);
+
+      const curZoom = zoomRef.current;
+      const curPan = panRef.current;
+
+      const bbox = getWallsBoundingBox(room.walls);
+      // Include activePoint in bounds check
+      const minX = Math.min(bbox.minX, activePoint.x);
+      const maxX = Math.max(bbox.maxX, activePoint.x);
+      const minY = Math.min(bbox.minY, activePoint.y);
+      const maxY = Math.max(bbox.maxY, activePoint.y);
+      const spanW = Math.max(1000, maxX - minX);
+      const spanH = Math.max(1000, maxY - minY);
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      // Check current screen bounds of the active cursor and the room
+      const toScreen = (wx: number, wy: number) => ({
+        x: (wx + curPan.x) * curZoom + rect.width / 2,
+        y: rect.height / 2 - (wy + curPan.y) * curZoom,
+      });
+
+      const sCursor = toScreen(activePoint.x, activePoint.y);
+      const sMin = toScreen(minX, maxY); // top-left in screen
+      const sMax = toScreen(maxX, minY); // bottom-right in screen
+
+      const cursorOutside =
+        sCursor.x < safeLeft + 24 ||
+        sCursor.x > safeRight - 24 ||
+        sCursor.y < safeTop + 24 ||
+        sCursor.y > safeBottom - 24;
+
+      const roomExceedsSafe =
+        sMin.x < safeLeft ||
+        sMax.x > safeRight ||
+        sMin.y < safeTop ||
+        sMax.y > safeBottom;
+
+      if (!cursorOutside && !roomExceedsSafe) {
+        // Everything is already comfortably in view — don't move the camera at all!
+        return;
+      }
+
+      // Compute zoom needed so the full drawn footprint fits with generous breathing room for the next wall
+      // Only zoom OUT (never unexpectedly zoom in while adding walls!)
+      const fitZoomForSpan = Math.min(safeW / spanW, safeH / spanH) * 0.78;
+      const nextZoom = Number(
+        Math.max(0.015, Math.min(curZoom, fitZoomForSpan)).toFixed(4)
+      );
+
+      const visCenterX = safeLeft + safeW / 2;
+      const visCenterY = safeTop + safeH / 2;
+      const dxCenterPx = visCenterX - rect.width / 2;
+      const dyCenterPx = visCenterY - rect.height / 2;
+
+      const targetPan = {
+        x: -centerX + dxCenterPx / nextZoom,
+        y: -centerY - dyCenterPx / nextZoom,
+      };
+
+      animateCameraTo(targetPan, nextZoom, 260);
+    }
+  }, [room.id, room.walls, room.isClosed, activePoint, getVisibleInsets, computeFitCamera, animateCameraTo]);
 
   // Main Render Loop
   useEffect(() => {
@@ -322,21 +620,48 @@ export default function PlanCanvas2D({
         if (isHoveredForOpening) {
           fillColor =
             placingOpening === "door"
-              ? "rgba(250, 204, 21, 0.35)"
+              ? "rgba(250, 204, 21, 0.4)"
               : placingOpening === "window"
-              ? "rgba(56, 189, 248, 0.35)"
-              : placingOpening === "electrical"
-              ? "rgba(74, 222, 128, 0.35)"
-              : "rgba(251, 146, 60, 0.35)";
+                ? "rgba(56, 189, 248, 0.4)"
+                : placingOpening === "electrical"
+                  ? "rgba(74, 222, 128, 0.4)"
+                  : placingOpening === "acUnit"
+                    ? "rgba(6, 182, 212, 0.4)"
+                    : "rgba(251, 146, 60, 0.4)";
           strokeColor =
             placingOpening === "door"
               ? "#facc15"
               : placingOpening === "window"
-              ? "#38bdf8"
-              : placingOpening === "electrical"
-              ? "#4ade80"
-              : "#fb923c";
-          lineWidth = 3;
+                ? "#38bdf8"
+                : placingOpening === "electrical"
+                  ? "#4ade80"
+                  : placingOpening === "acUnit"
+                    ? "#06b6d4"
+                    : "#fb923c";
+          lineWidth = 3.2;
+        } else if (placingOpening) {
+          // Subtle target highlight on all walls while in placement mode (crucial on touchscreens without hover)
+          fillColor =
+            placingOpening === "door"
+              ? "rgba(250, 204, 21, 0.16)"
+              : placingOpening === "window"
+                ? "rgba(56, 189, 248, 0.18)"
+                : placingOpening === "electrical"
+                  ? "rgba(74, 222, 128, 0.16)"
+                  : placingOpening === "acUnit"
+                    ? "rgba(6, 182, 212, 0.16)"
+                    : "rgba(251, 146, 60, 0.16)";
+          strokeColor =
+            placingOpening === "door"
+              ? "rgba(250, 204, 21, 0.85)"
+              : placingOpening === "window"
+                ? "rgba(56, 189, 248, 0.9)"
+                : placingOpening === "electrical"
+                  ? "rgba(74, 222, 128, 0.85)"
+                  : placingOpening === "acUnit"
+                    ? "rgba(6, 182, 212, 0.85)"
+                    : "rgba(251, 146, 60, 0.85)";
+          lineWidth = 2.2;
         } else if (isSelected) {
           fillColor = "rgba(41, 245, 126, 0.25)";
           strokeColor = "#29f57e";
@@ -369,10 +694,10 @@ export default function PlanCanvas2D({
             placingOpening === "door"
               ? "#facc15"
               : placingOpening === "window"
-              ? "#38bdf8"
-              : placingOpening === "electrical"
-              ? "#4ade80"
-              : "#fb923c";
+                ? "#38bdf8"
+                : placingOpening === "electrical"
+                  ? "#4ade80"
+                  : "#fb923c";
 
           ctx.fillStyle = markerColor;
           ctx.beginPath();
@@ -1044,10 +1369,10 @@ export default function PlanCanvas2D({
         const elemColor = isSelected
           ? "#29f57e"
           : elem.type === "socket"
-          ? "#fb923c"
-          : elem.type === "switch"
-          ? "#a3e635"
-          : "#f87171";
+            ? "#fb923c"
+            : elem.type === "switch"
+              ? "#a3e635"
+              : "#f87171";
 
         if (elem.type === "socket") {
           // Architectural Socket Symbol
@@ -1591,11 +1916,11 @@ export default function PlanCanvas2D({
             isVertical: boolean;
             startPt: Point2D;
           }[] = [
-            { key: "up", data: dims4.up, isVertical: true, startPt: { x: geo.center.x, y: geo.bounds.maxY } },
-            { key: "down", data: dims4.down, isVertical: true, startPt: { x: geo.center.x, y: geo.bounds.minY } },
-            { key: "left", data: dims4.left, isVertical: false, startPt: { x: geo.bounds.minX, y: geo.center.y } },
-            { key: "right", data: dims4.right, isVertical: false, startPt: { x: geo.bounds.maxX, y: geo.center.y } },
-          ];
+              { key: "up", data: dims4.up, isVertical: true, startPt: { x: geo.center.x, y: geo.bounds.maxY } },
+              { key: "down", data: dims4.down, isVertical: true, startPt: { x: geo.center.x, y: geo.bounds.minY } },
+              { key: "left", data: dims4.left, isVertical: false, startPt: { x: geo.bounds.minX, y: geo.center.y } },
+              { key: "right", data: dims4.right, isVertical: false, startPt: { x: geo.bounds.maxX, y: geo.center.y } },
+            ];
 
           entries.forEach(({ key, data, isVertical, startPt }) => {
             if (!data) return;
@@ -2149,11 +2474,162 @@ export default function PlanCanvas2D({
     placingOpening,
   ]);
 
-  // Mouse / Touch Event Handlers for Panning, Marquee Selection, and Tapping Elements
+  // Apply in-app dimension edit popover value
+  const applyDimEdit = useCallback(
+    (hb: TempDimHitbox, rawVal: string) => {
+      const parsed = parseFloat(rawVal.trim().replace(",", "."));
+      if (isNaN(parsed) || parsed < 0) return;
+      const parsedMm = Math.round(parsed * 10);
+
+      if (hb.kind === "wallOffset" && hb.elementId && hb.elementType) {
+        if (hb.elementType !== "beam" && hb.elementType !== "chimney") {
+          const wallLen = hb.wallLen || 3000;
+          const elemW = hb.elementWidth || 0;
+          let newOffset = hb.isStartDim ? parsedMm : wallLen - elemW - parsedMm;
+          newOffset = Math.max(0, Math.min(wallLen - elemW, Math.round(newOffset)));
+          onChangeElementOffset?.(hb.elementId, hb.elementType, newOffset);
+        }
+      } else if (hb.kind === "lightCoord" && hb.lightId && hb.direction && hb.wallHitCoord !== undefined) {
+        const light = room.lighting?.find((l) => l.id === hb.lightId);
+        if (light) {
+          let newX = light.x;
+          let newY = light.y;
+          if (hb.direction === "up") newY = Math.round(hb.wallHitCoord - parsedMm);
+          else if (hb.direction === "down") newY = Math.round(hb.wallHitCoord + parsedMm);
+          else if (hb.direction === "left") newX = Math.round(hb.wallHitCoord + parsedMm);
+          else if (hb.direction === "right") newX = Math.round(hb.wallHitCoord - parsedMm);
+          onChangeLightPosition?.(hb.lightId, newX, newY);
+        }
+      } else if (hb.kind === "beamCoord" && hb.beamId && hb.direction && hb.wallHitCoord !== undefined) {
+        const beam = room.beams?.find((b) => b.id === hb.beamId);
+        if (beam) {
+          const isHoriz = beam.orientation === "horizontal";
+          const w = beam.width || 250;
+          if (isHoriz) {
+            if (hb.direction === "up") {
+              const yTop = hb.wallHitCoord - parsedMm;
+              const newY = beam.alignment === "interior" ? yTop - w : beam.alignment === "exterior" ? yTop : yTop - w / 2;
+              onChangeBeamPosition?.(beam.id, { y: Math.round(newY) });
+            } else if (hb.direction === "down") {
+              const yBottom = hb.wallHitCoord + parsedMm;
+              const newY = beam.alignment === "interior" ? yBottom : beam.alignment === "exterior" ? yBottom + w : yBottom + w / 2;
+              onChangeBeamPosition?.(beam.id, { y: Math.round(newY) });
+            } else if (hb.direction === "left") {
+              onChangeBeamPosition?.(beam.id, { spanStart: parsedMm });
+            } else if (hb.direction === "right") {
+              onChangeBeamPosition?.(beam.id, { spanEnd: parsedMm });
+            }
+          } else {
+            if (hb.direction === "left") {
+              const xLeft = hb.wallHitCoord + parsedMm;
+              const newX = beam.alignment === "interior" ? xLeft : beam.alignment === "exterior" ? xLeft + w : xLeft + w / 2;
+              onChangeBeamPosition?.(beam.id, { x: Math.round(newX) });
+            } else if (hb.direction === "right") {
+              const xRight = hb.wallHitCoord - parsedMm;
+              const newX = beam.alignment === "interior" ? xRight - w : beam.alignment === "exterior" ? xRight : xRight - w / 2;
+              onChangeBeamPosition?.(beam.id, { x: Math.round(newX) });
+            } else if (hb.direction === "down") {
+              onChangeBeamPosition?.(beam.id, { spanStart: parsedMm });
+            } else if (hb.direction === "up") {
+              onChangeBeamPosition?.(beam.id, { spanEnd: parsedMm });
+            }
+          }
+        }
+      } else if (hb.kind === "chimneyCoord" && hb.chimneyId && hb.direction && hb.wallHitCoord !== undefined) {
+        const chim = room.chimneys?.find((c) => c.id === hb.chimneyId);
+        if (chim) {
+          let newX = chim.x;
+          let newY = chim.y;
+          const halfW = (chim.width || 400) / 2;
+          const halfD = (chim.depth || 400) / 2;
+          if (hb.direction === "up") newY = Math.round(hb.wallHitCoord - parsedMm - halfD);
+          else if (hb.direction === "down") newY = Math.round(hb.wallHitCoord + parsedMm + halfD);
+          else if (hb.direction === "left") newX = Math.round(hb.wallHitCoord + parsedMm + halfW);
+          else if (hb.direction === "right") newX = Math.round(hb.wallHitCoord - parsedMm - halfW);
+          onChangeChimneyPosition?.(hb.chimneyId, newX, newY);
+        }
+      }
+    },
+    [room.lighting, room.beams, room.chimneys, onChangeElementOffset, onChangeLightPosition, onChangeBeamPosition, onChangeChimneyPosition]
+  );
+
+  // Helper: Find the closest wall to a world tap/click using a zoom-aware screen-space tolerance
+  const findClosestWallForPlacement = useCallback(
+    (worldPt: Point2D, currentZoom: number, isTouch: boolean): { wall: WallElement; offset: number } | null => {
+      const screenThresholdPx = isTouch ? 40 : 26;
+      const minWorldTol = screenThresholdPx / Math.max(0.015, currentZoom);
+
+      let closestWall: WallElement | null = null;
+      let minDist = Infinity;
+
+      for (const wall of room.walls) {
+        const d = getDistanceToSegment(worldPt, wall.start, wall.end);
+        const wallTol = Math.max((wall.thickness || 150) + 240, minWorldTol);
+        if (d <= wallTol && d < minDist) {
+          minDist = d;
+          closestWall = wall;
+        }
+      }
+
+      if (!closestWall) return null;
+      return {
+        wall: closestWall,
+        offset: getOffsetAlongSegment(worldPt, closestWall.start, closestWall.end),
+      };
+    },
+    [room.walls]
+  );
+
+  // Mouse / Touch Event Handlers for Panning, Pinch-to-Zoom, Marquee Selection, and Tapping Elements
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    isDraggingRef.current = true;
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    panStartRef.current = { ...pan };
+    cancelCameraAnimation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore synthetic events where pointer capture isn't supported
+    }
+
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointersRef.current.size === 2) {
+      // Enter 2-finger pinch-to-zoom mode
+      isDraggingRef.current = false;
+      didPinchRef.current = true;
+      setSelectionBox(null);
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const pts = Array.from(activePointersRef.current.values());
+      const dist = Math.max(10, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
+      const midScreenX = (pts[0].x + pts[1].x) / 2 - rect.left;
+      const midScreenY = (pts[0].y + pts[1].y) / 2 - rect.top;
+      const midWorld = screenToWorld(midScreenX, midScreenY, rect.width, rect.height);
+
+      pinchStartRef.current = { dist, zoom, midWorld };
+      return;
+    }
+
+    if (activePointersRef.current.size === 1) {
+      didPinchRef.current = false;
+      isDraggingRef.current = true;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      panStartRef.current = { ...pan };
+
+      // Provide immediate visual highlight under finger when tapping a wall to place an opening
+      if (placingOpening && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const downWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+        const match = findClosestWallForPlacement(downWorld, zoomRef.current, e.pointerType === "touch");
+        if (match) {
+          setHoveredWallId(match.wall.id);
+          setHoverOffset(match.offset);
+        } else {
+          setHoveredWallId(null);
+          setHoverOffset(null);
+        }
+      }
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -2161,8 +2637,35 @@ export default function PlanCanvas2D({
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
 
-    // Check vertex snap when moving pointer (hover detection)
-    if (!isDraggingRef.current) {
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // Active 2-finger pinch-to-zoom & two-finger pan
+    if (activePointersRef.current.size === 2 && pinchStartRef.current) {
+      const pts = Array.from(activePointersRef.current.values());
+      const newDist = Math.max(10, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
+      const scaleRatio = newDist / pinchStartRef.current.dist;
+      const newZoom = Math.max(0.015, Math.min(0.8, pinchStartRef.current.zoom * scaleRatio));
+
+      const midScreenX = (pts[0].x + pts[1].x) / 2 - rect.left;
+      const midScreenY = (pts[0].y + pts[1].y) / 2 - rect.top;
+      const { midWorld } = pinchStartRef.current;
+
+      const newPanX = (midScreenX - rect.width / 2) / newZoom - midWorld.x;
+      const newPanY = (rect.height / 2 - midScreenY) / newZoom - midWorld.y;
+
+      panRef.current = { x: newPanX, y: newPanY };
+      zoomRef.current = newZoom;
+      setZoom(newZoom);
+      setPan({ x: newPanX, y: newPanY });
+      return;
+    }
+
+    if (didPinchRef.current) return;
+
+    // Check vertex snap when moving pointer (hover detection on mouse/pen, skip while placing openings)
+    if (!isDraggingRef.current && !placingOpening && e.pointerType !== "touch") {
       const curX = e.clientX - rect.left;
       const curY = e.clientY - rect.top;
       let foundSnap: Point2D | null = null;
@@ -2181,21 +2684,12 @@ export default function PlanCanvas2D({
       setHoveredSnapPoint(foundSnap);
     }
 
-    if (placingOpening) {
+    if (placingOpening && !isDraggingRef.current && e.pointerType !== "touch") {
       const curWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-      let foundWall: WallElement | null = null;
-      let minDistance = Infinity;
-      for (const wall of room.walls) {
-        const d = getDistanceToSegment(curWorld, wall.start, wall.end);
-        if (d < wall.thickness + 200 && d < minDistance) {
-          minDistance = d;
-          foundWall = wall;
-        }
-      }
-      if (foundWall) {
-        setHoveredWallId(foundWall.id);
-        const off = getOffsetAlongSegment(curWorld, foundWall.start, foundWall.end);
-        setHoverOffset(off);
+      const match = findClosestWallForPlacement(curWorld, zoomRef.current, false);
+      if (match) {
+        setHoveredWallId(match.wall.id);
+        setHoverOffset(match.offset);
       } else {
         setHoveredWallId(null);
         setHoverOffset(null);
@@ -2207,13 +2701,14 @@ export default function PlanCanvas2D({
     const dy = e.clientY - dragStartRef.current.y;
     const dist = Math.hypot(dx, dy);
 
-    if (activeTool === "boxSelect") {
+    // Deadzone (6px) prevents finger tremor during a tap from panning the canvas away from a wall
+    if (dist < 6) return;
+
+    if (activeTool === "boxSelect" && !placingOpening) {
       // Box selection tool: dragging draws marquee box
-      if (dist > 6) {
-        const startWorld = screenToWorld(dragStartRef.current.x - rect.left, dragStartRef.current.y - rect.top, rect.width, rect.height);
-        const curWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-        setSelectionBox({ start: startWorld, current: curWorld });
-      }
+      const startWorld = screenToWorld(dragStartRef.current.x - rect.left, dragStartRef.current.y - rect.top, rect.width, rect.height);
+      const curWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+      setSelectionBox({ start: startWorld, current: curWorld });
     } else {
       // Default tool: dragging pans the canvas view smoothly
       setPan({
@@ -2223,7 +2718,43 @@ export default function PlanCanvas2D({
     }
   };
 
+  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore
+    }
+    activePointersRef.current.delete(e.pointerId);
+    if (activePointersRef.current.size < 2) {
+      pinchStartRef.current = null;
+    }
+    if (activePointersRef.current.size === 0) {
+      isDraggingRef.current = false;
+      didPinchRef.current = false;
+      setSelectionBox(null);
+    }
+  };
+
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore
+    }
+    activePointersRef.current.delete(e.pointerId);
+
+    if (activePointersRef.current.size < 2) {
+      pinchStartRef.current = null;
+    }
+
+    if (didPinchRef.current) {
+      if (activePointersRef.current.size === 0) {
+        didPinchRef.current = false;
+      }
+      isDraggingRef.current = false;
+      return;
+    }
+
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
 
@@ -2232,6 +2763,24 @@ export default function PlanCanvas2D({
     const rect = canvas.getBoundingClientRect();
     const clickScreenX = e.clientX - rect.left;
     const clickScreenY = e.clientY - rect.top;
+    const totalDist = Math.hypot(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y);
+
+    // 0. Priority: If user is placing an opening (window/door/electrical/radiator/acUnit),
+    // resolve wall tap BEFORE box select, temp dimensions, or corner snapping so nothing steals the tap!
+    if (placingOpening && onSelectWallForOpening) {
+      const tapMaxMove = e.pointerType === "touch" ? 22 : 12;
+      if (totalDist < tapMaxMove) {
+        const clickWorld = screenToWorld(clickScreenX, clickScreenY, rect.width, rect.height);
+        const match = findClosestWallForPlacement(clickWorld, zoomRef.current, e.pointerType === "touch");
+        if (match) {
+          onSelectWallForOpening(match.wall.id, match.offset, placingOpening);
+          setHoveredWallId(null);
+          setHoverOffset(null);
+          setHoveredSnapPoint(null);
+        }
+      }
+      return;
+    }
 
     // 1. Marquee Box Selection Resolution
     if (selectionBox) {
@@ -2325,167 +2874,49 @@ export default function PlanCanvas2D({
       return;
     }
 
-    // 2. Check Click on Temporary Dimension Line Hitboxes
+    // 2. Check Click / Tap on Temporary Dimension Line Hitboxes (with extra finger padding on touch)
+    const touchPad = e.pointerType === "touch" ? 10 : 0;
     for (const hb of tempDimHitboxesRef.current) {
       if (
-        clickScreenX >= hb.minX &&
-        clickScreenX <= hb.maxX &&
-        clickScreenY >= hb.minY &&
-        clickScreenY <= hb.maxY
+        clickScreenX >= hb.minX - touchPad &&
+        clickScreenX <= hb.maxX + touchPad &&
+        clickScreenY >= hb.minY - touchPad &&
+        clickScreenY <= hb.maxY + touchPad
       ) {
-        if (hb.kind === "wallOffset" && hb.elementId && hb.elementType) {
-          const curValCm = Math.round((hb.currentVal || 0) / 10);
-          if (hb.elementType !== "beam" && hb.elementType !== "chimney") {
-            const label = hb.isStartDim ? "Mesafe Duvar Başından (cm):" : "Mesafe Duvar Sonundan (cm):";
-            const inputVal = window.prompt(label, String(curValCm));
-            if (inputVal !== null) {
-              const parsed = parseFloat(inputVal.trim());
-              if (!isNaN(parsed) && parsed >= 0) {
-                const parsedMm = parsed * 10;
-                const wallLen = hb.wallLen || 3000;
-                const elemW = hb.elementWidth || 0;
-                let newOffset = hb.isStartDim ? parsedMm : wallLen - elemW - parsedMm;
-                newOffset = Math.max(0, Math.min(wallLen - elemW, Math.round(newOffset)));
-                onChangeElementOffset?.(hb.elementId, hb.elementType, newOffset);
-              }
-            }
-          }
-          return;
-        } else if (hb.kind === "lightCoord" && hb.lightId && hb.direction && hb.wallHitCoord !== undefined) {
-          const curValCm = Math.round((hb.currentVal || 0) / 10);
-          const dirLabel =
-            hb.direction === "up" ? "Üst" : hb.direction === "down" ? "Alt" : hb.direction === "left" ? "Sol" : "Sağ";
-          const inputVal = window.prompt(`Mesafe (${dirLabel} Duvara) (cm):`, String(curValCm));
-          if (inputVal !== null) {
-            const parsed = parseFloat(inputVal.trim());
-            if (!isNaN(parsed) && parsed >= 0) {
-              const newDistMm = Math.round(parsed * 10);
-              const light = room.lighting?.find((l) => l.id === hb.lightId);
-              if (light) {
-                let newX = light.x;
-                let newY = light.y;
-                if (hb.direction === "up") {
-                  newY = Math.round(hb.wallHitCoord - newDistMm);
-                } else if (hb.direction === "down") {
-                  newY = Math.round(hb.wallHitCoord + newDistMm);
-                } else if (hb.direction === "left") {
-                  newX = Math.round(hb.wallHitCoord + newDistMm);
-                } else if (hb.direction === "right") {
-                  newX = Math.round(hb.wallHitCoord - newDistMm);
-                }
-                onChangeLightPosition?.(hb.lightId, newX, newY);
-              }
-            }
-          }
-          return;
-        } else if (hb.kind === "beamCoord" && hb.beamId && hb.direction && hb.wallHitCoord !== undefined) {
-          const curValCm = Math.round((hb.currentVal || 0) / 10);
-          const dirMap: Record<string, string> = {
-            up: "Üst",
-            down: "Alt",
-            left: "Sol",
-            right: "Sağ",
-          };
-          const dirLabel = dirMap[hb.direction] || hb.direction;
-          const inputVal = window.prompt(`Mesafe (${dirLabel} Duvara) (cm):`, String(curValCm));
-          if (inputVal !== null) {
-            const parsed = parseFloat(inputVal.trim());
-            if (!isNaN(parsed) && parsed >= 0) {
-              const newDistMm = Math.round(parsed * 10);
-              const beam = room.beams?.find((b) => b.id === hb.beamId);
-              if (beam) {
-                const isHoriz = beam.orientation === "horizontal";
-                const w = beam.width || 250;
-                if (isHoriz) {
-                  if (hb.direction === "up") {
-                    let newY: number;
-                    const yTop = hb.wallHitCoord - newDistMm;
-                    if (beam.alignment === "interior") newY = yTop - w;
-                    else if (beam.alignment === "exterior") newY = yTop;
-                    else newY = yTop - w / 2;
-                    onChangeBeamPosition?.(beam.id, { y: Math.round(newY) });
-                  } else if (hb.direction === "down") {
-                    let newY: number;
-                    const yBottom = hb.wallHitCoord + newDistMm;
-                    if (beam.alignment === "interior") newY = yBottom;
-                    else if (beam.alignment === "exterior") newY = yBottom + w;
-                    else newY = yBottom + w / 2;
-                    onChangeBeamPosition?.(beam.id, { y: Math.round(newY) });
-                  } else if (hb.direction === "left") {
-                    onChangeBeamPosition?.(beam.id, { spanStart: newDistMm });
-                  } else if (hb.direction === "right") {
-                    onChangeBeamPosition?.(beam.id, { spanEnd: newDistMm });
-                  }
-                } else {
-                  if (hb.direction === "left") {
-                    let newX: number;
-                    const xLeft = hb.wallHitCoord + newDistMm;
-                    if (beam.alignment === "interior") newX = xLeft;
-                    else if (beam.alignment === "exterior") newX = xLeft + w;
-                    else newX = xLeft + w / 2;
-                    onChangeBeamPosition?.(beam.id, { x: Math.round(newX) });
-                  } else if (hb.direction === "right") {
-                    let newX: number;
-                    const xRight = hb.wallHitCoord - newDistMm;
-                    if (beam.alignment === "interior") newX = xRight - w;
-                    else if (beam.alignment === "exterior") newX = xRight;
-                    else newX = xRight - w / 2;
-                    onChangeBeamPosition?.(beam.id, { x: Math.round(newX) });
-                  } else if (hb.direction === "down") {
-                    onChangeBeamPosition?.(beam.id, { spanStart: newDistMm });
-                  } else if (hb.direction === "up") {
-                    onChangeBeamPosition?.(beam.id, { spanEnd: newDistMm });
-                  }
-                }
-              }
-            }
-          }
-          return;
-        } else if (hb.kind === "chimneyCoord" && hb.chimneyId && hb.direction && hb.wallHitCoord !== undefined) {
-          const curValCm = Math.round((hb.currentVal || 0) / 10);
-          const dirMap: Record<string, string> = {
-            up: "Üst",
-            down: "Alt",
-            left: "Sol",
-            right: "Sağ",
-          };
-          const dirLabel = dirMap[hb.direction] || hb.direction;
-          const inputVal = window.prompt(`Mesafe (${dirLabel} Duvara) (cm):`, String(curValCm));
-          if (inputVal !== null) {
-            const parsed = parseFloat(inputVal.trim());
-            if (!isNaN(parsed) && parsed >= 0) {
-              const newDistMm = Math.round(parsed * 10);
-              const chim = room.chimneys?.find((c) => c.id === hb.chimneyId);
-              if (chim) {
-                let newX = chim.x;
-                let newY = chim.y;
-                const halfW = (chim.width || 400) / 2;
-                const halfD = (chim.depth || 400) / 2;
-                if (hb.direction === "up") {
-                  newY = Math.round(hb.wallHitCoord - newDistMm - halfD);
-                } else if (hb.direction === "down") {
-                  newY = Math.round(hb.wallHitCoord + newDistMm + halfD);
-                } else if (hb.direction === "left") {
-                  newX = Math.round(hb.wallHitCoord + newDistMm + halfW);
-                } else if (hb.direction === "right") {
-                  newX = Math.round(hb.wallHitCoord - newDistMm - halfW);
-                }
-                onChangeChimneyPosition?.(hb.chimneyId, newX, newY);
-              }
-            }
-          }
-          return;
+        const curValCm = Math.round((hb.currentVal || 0) / 10);
+        let label = "Mesafe (cm)";
+        if (hb.kind === "wallOffset") {
+          label = hb.isStartDim ? "Duvar Başından Mesafe (cm)" : "Duvar Sonundan Mesafe (cm)";
+        } else if (hb.direction) {
+          const dirMap: Record<string, string> = { up: "Üst", down: "Alt", left: "Sol", right: "Sağ" };
+          label = `${dirMap[hb.direction] || hb.direction} Duvara Mesafe (cm)`;
         }
+        setDimEditState({ hitbox: hb, label, value: String(curValCm) });
+        return;
       }
     }
 
-    const totalDist = Math.hypot(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y);
-    if (totalDist < 8) {
-      // 3a. Snap Surveyor Cursor to Wall Endpoint
-      if (hoveredSnapPoint && onSetActivePoint) {
-        onSetActivePoint(hoveredSnapPoint);
+    if (totalDist < (e.pointerType === "touch" ? 14 : 8)) {
+      // 3a. Snap Surveyor Cursor to Wall Endpoint (supports both mouse hover & direct touch tap while drafting)
+      let tapSnapPoint = hoveredSnapPoint;
+      if (!tapSnapPoint && e.pointerType === "touch" && !room.isClosed && onSetActivePoint) {
+        let minSnapDist = Infinity;
+        for (const wall of room.walls) {
+          for (const pt of [wall.start, wall.end]) {
+            const sPt = worldToScreen(pt.x, pt.y, rect.width, rect.height);
+            const screenDist = Math.hypot(clickScreenX - sPt.x, clickScreenY - sPt.y);
+            if (screenDist < 24 && screenDist < minSnapDist) {
+              minSnapDist = screenDist;
+              tapSnapPoint = pt;
+            }
+          }
+        }
+      }
+
+      if (tapSnapPoint && onSetActivePoint) {
+        onSetActivePoint(tapSnapPoint);
         const matchedWall = room.walls.find(
-          (w) => getDistance(w.start, hoveredSnapPoint) < 5 || getDistance(w.end, hoveredSnapPoint) < 5
+          (w) => getDistance(w.start, tapSnapPoint) < 5 || getDistance(w.end, tapSnapPoint) < 5
         );
         if (matchedWall) {
           onSelectElement(matchedWall.id, "wall");
@@ -2494,21 +2925,6 @@ export default function PlanCanvas2D({
       }
 
       const clickWorld = screenToWorld(clickScreenX, clickScreenY, rect.width, rect.height);
-
-      // If user is placing an opening, select the clicked wall and open configuration modal
-      if (placingOpening && onSelectWallForOpening) {
-        for (const wall of room.walls) {
-          const dist = getDistanceToSegment(clickWorld, wall.start, wall.end);
-          if (dist < wall.thickness + 220) {
-            const offset = getOffsetAlongSegment(clickWorld, wall.start, wall.end);
-            onSelectWallForOpening(wall.id, offset, placingOpening);
-            setHoveredWallId(null);
-            setHoverOffset(null);
-            return;
-          }
-        }
-        return;
-      }
 
       // 1. Hit test Radiators FIRST with exact footprint (resolves radiator under window selection conflict!)
       if (room.radiators) {
@@ -2712,29 +3128,34 @@ export default function PlanCanvas2D({
     }
   };
 
-  // Helper: Point to line segment distance
-  function getDistanceToSegment(p: Point2D, a: Point2D, b: Point2D): number {
-    const l2 = Math.hypot(b.x - a.x, b.y - a.y) ** 2;
-    if (l2 === 0) return getDistance(p, a);
-    let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return getDistance(p, { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
-  }
-
-  // Helper: Offset along segment from point 'a' in mm
-  function getOffsetAlongSegment(p: Point2D, a: Point2D, b: Point2D): number {
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    if (len <= 0) return 0;
-    const dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
-    const t = Math.max(0, Math.min(1, dot / (len * len)));
-    return Math.round(t * len);
-  }
-
-  // Mouse wheel zoom
+  // Mouse wheel zoom anchored to pointer position
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    cancelCameraAnimation();
+    const canvas = canvasRef.current;
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-    setZoom((prev) => Math.max(0.02, Math.min(prev * zoomFactor, 0.8)));
+    if (!canvas) {
+      setZoom((prev) => Math.max(0.015, Math.min(prev * zoomFactor, 0.8)));
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const curZoom = zoomRef.current;
+    const curPan = panRef.current;
+    const newZoom = Math.max(0.015, Math.min(curZoom * zoomFactor, 0.8));
+
+    const worldX = (cursorX - rect.width / 2) / curZoom - curPan.x;
+    const worldY = (rect.height / 2 - cursorY) / curZoom - curPan.y;
+    const newPan = {
+      x: (cursorX - rect.width / 2) / newZoom - worldX,
+      y: (rect.height / 2 - cursorY) / newZoom - worldY,
+    };
+
+    panRef.current = newPan;
+    zoomRef.current = newZoom;
+    setZoom(newZoom);
+    setPan(newPan);
   };
 
   return (
@@ -2745,30 +3166,112 @@ export default function PlanCanvas2D({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onWheel={handleWheel}
       />
+
+      {/* In-App Numeric Dimension Editor Popover */}
+      {dimEditState && (
+        <div className={styles.dimPopoverBackdrop} onClick={() => setDimEditState(null)}>
+          <form
+            className={styles.dimPopoverCard}
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              applyDimEdit(dimEditState.hitbox, dimEditState.value);
+              setDimEditState(null);
+            }}
+          >
+            <label className={styles.dimPopoverLabel}>{dimEditState.label}</label>
+            <div className={styles.dimPopoverInputRow}>
+              <input
+                type="number"
+                inputMode="decimal"
+                enterKeyHint="done"
+                step="1"
+                min="0"
+                autoFocus
+                value={dimEditState.value}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setDimEditState((prev) => (prev ? { ...prev, value: e.target.value } : null))}
+                className={styles.dimPopoverInput}
+              />
+              <span className={styles.dimPopoverUnit}>cm</span>
+            </div>
+            <div className={styles.dimPopoverChips}>
+              {[-10, -5, 5, 10].map((delta) => (
+                <button
+                  key={delta}
+                  type="button"
+                  className={styles.dimPopoverChip}
+                  onClick={() =>
+                    setDimEditState((prev) => {
+                      if (!prev) return null;
+                      const num = Math.max(0, (parseFloat(prev.value) || 0) + delta);
+                      return { ...prev, value: String(num) };
+                    })
+                  }
+                >
+                  {delta > 0 ? `+${delta}` : delta}
+                </button>
+              ))}
+            </div>
+            <div className={styles.dimPopoverActions}>
+              <button
+                type="button"
+                className={styles.dimPopoverCancel}
+                onClick={() => setDimEditState(null)}
+              >
+                İptal
+              </button>
+              <button type="submit" className={styles.dimPopoverApply}>
+                Uygula
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Placing Opening Prompt Banner */}
       {placingOpening && (
         <div className={styles.placingBanner}>
           <span className={styles.placingText}>
             {placingOpening === "door"
-              ? "🚪 Kapı eklemek için duvara tıklayın"
+              ? "🚪 Kapı için duvara dokunun"
               : placingOpening === "window"
-              ? "🪟 Pencere eklemek için duvara tıklayın"
-              : placingOpening === "electrical"
-              ? "⚡ Elektrik elemanı (priz/anahtar/sigorta) eklemek için duvara tıklayın"
-              : "🔥 Doğalgaz peteği eklemek için duvara tıklayın"}
+                ? "🪟 Pencere için duvara dokunun"
+                : placingOpening === "electrical"
+                  ? "⚡ Elektrik elemanı için duvara dokunun"
+                  : placingOpening === "acUnit"
+                    ? "❄️ Klima için duvara dokunun"
+                    : "🔥 Petek için duvara dokunun"}
           </span>
-          {onCancelPlacingOpening && (
-            <button
-              type="button"
-              className={styles.cancelPlacingBtn}
-              onClick={onCancelPlacingOpening}
-            >
-              İptal
-            </button>
-          )}
+          <div className={styles.placingBannerActions}>
+            {room.walls.length > 0 && onSelectWallForOpening && (
+              <button
+                type="button"
+                className={styles.pickWallListBtn}
+                onClick={() => {
+                  const firstWall = room.walls[0];
+                  const midOff = Math.round(getDistance(firstWall.start, firstWall.end) / 2);
+                  onSelectWallForOpening(firstWall.id, midOff, placingOpening);
+                  setHoveredWallId(null);
+                  setHoverOffset(null);
+                }}
+              >
+                Listeden Seç
+              </button>
+            )}
+            {onCancelPlacingOpening && (
+              <button
+                type="button"
+                className={styles.cancelPlacingBtn}
+                onClick={onCancelPlacingOpening}
+              >
+                İptal
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -2793,8 +3296,9 @@ export default function PlanCanvas2D({
         <button
           type="button"
           className={styles.iconBtn}
-          onClick={handleAutoFit}
+          onClick={() => handleAutoFit(true)}
           title="Fit & Center Room"
+          aria-label="Odayı ortala ve sığdır"
         >
           <MdCenterFocusStrong size={18} />
         </button>
@@ -2802,8 +3306,9 @@ export default function PlanCanvas2D({
         <button
           type="button"
           className={styles.iconBtn}
-          onClick={() => setZoom((prev) => Math.min(prev * 1.25, 0.8))}
+          onClick={() => handleStepZoom(1.25)}
           title="Zoom In"
+          aria-label="Yakınlaştır"
         >
           <MdZoomIn size={18} />
         </button>
@@ -2811,8 +3316,9 @@ export default function PlanCanvas2D({
         <button
           type="button"
           className={styles.iconBtn}
-          onClick={() => setZoom((prev) => Math.max(prev * 0.8, 0.02))}
+          onClick={() => handleStepZoom(0.8)}
           title="Zoom Out"
+          aria-label="Uzaklaştır"
         >
           <MdZoomOut size={18} />
         </button>

@@ -62,6 +62,32 @@ function ProjectRoomsContent({ params }: PageProps) {
   const [newRoomType, setNewRoomType] = useState<RoomType>("living");
   const [creating, setCreating] = useState(false);
 
+  // Mobile Tab & In-App Confirmation/Toast State
+  const [mobileSection, setMobileSection] = useState<"rooms" | "boq">("rooms");
+  const [roomPendingDelete, setRoomPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingRoom, setDeletingRoom] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3000);
+  };
+
+  // Escape key closes modals
+  useEffect(() => {
+    if (!isModalOpen && !roomPendingDelete) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsModalOpen(false);
+        setRoomPendingDelete(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isModalOpen, roomPendingDelete]);
+
   // Filter Toggles for BOQ Breakdown
   const [floorFilter, setFloorFilter] = useState<"all" | "laminate" | "ceramic">("all");
   const [ceilingOnlyDrywall, setCeilingOnlyDrywall] = useState<boolean>(false);
@@ -226,21 +252,24 @@ function ProjectRoomsContent({ params }: PageProps) {
       }
     } catch (err) {
       console.error("Error creating room:", err);
-      alert("Failed to create room.");
+      showToast("Oda oluşturulamadı. Lütfen tekrar deneyin.");
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDeleteRoom = async (roomId: string, roomName: string) => {
-    if (!user?.uid || !projectId) return;
-    if (!confirm(`Are you sure you want to delete "${roomName}"?`)) return;
-
+  const handleConfirmDeleteRoom = async () => {
+    if (!user?.uid || !projectId || !roomPendingDelete) return;
+    setDeletingRoom(true);
     try {
-      await deleteRoomFromProject(user.uid, projectId, roomId);
+      await deleteRoomFromProject(user.uid, projectId, roomPendingDelete.id);
+      showToast(`"${roomPendingDelete.name}" silindi.`);
+      setRoomPendingDelete(null);
     } catch (err) {
       console.error("Error deleting room:", err);
-      alert("Failed to delete room.");
+      showToast("Oda silinemedi. Lütfen tekrar deneyin.");
+    } finally {
+      setDeletingRoom(false);
     }
   };
 
@@ -301,13 +330,47 @@ function ProjectRoomsContent({ params }: PageProps) {
             onClick={() => setIsModalOpen(true)}
           >
             <MdAdd size={18} />
-            <span>Yeni Oda Çiz / Add Room</span>
+            <span>Yeni Oda</span>
           </button>
         </div>
       </header>
 
+      {/* Mobile Compact KPI Strip + Section Tabs (Rooms First on Phone) */}
+      <div className={styles.mobileOverviewBar}>
+        <div className={styles.mobileKpiStrip}>
+          <span><strong>{totals.roomCount}</strong> Oda</span>
+          <span className={styles.mobileKpiDot}>•</span>
+          <span><strong>{totals.totalArea}</strong> m² Zemin</span>
+          <span className={styles.mobileKpiDot}>•</span>
+          <span><strong>{boqTotals.netWallAreaM2}</strong> m² Duvar</span>
+        </div>
+
+        <div className={styles.mobileSectionTabs} role="tablist" aria-label="Proje Bölümleri">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileSection === "rooms"}
+            className={`${styles.mobileTabBtn} ${mobileSection === "rooms" ? styles.mobileTabBtnActive : ""}`}
+            onClick={() => setMobileSection("rooms")}
+          >
+            <MdMeetingRoom size={16} />
+            <span>Odalar ({totals.roomCount})</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileSection === "boq"}
+            className={`${styles.mobileTabBtn} ${mobileSection === "boq" ? styles.mobileTabBtnActive : ""}`}
+            onClick={() => setMobileSection("boq")}
+          >
+            <MdReceiptLong size={16} />
+            <span>Metraj / BOQ</span>
+          </button>
+        </div>
+      </div>
+
       {/* Metraj & Hakediş Özeti (Quantity Takeoff / BOQ Panel) */}
-      <section className={styles.boqSection}>
+      <section className={`${styles.boqSection} ${mobileSection !== "boq" ? styles.mobileHiddenSection : ""}`}>
         <div className={styles.boqHeader}>
           <div className={styles.boqTitleGroup}>
             <MdReceiptLong size={22} color="var(--accent)" />
@@ -452,7 +515,7 @@ function ProjectRoomsContent({ params }: PageProps) {
       </section>
 
       {/* Metrics Summary Bar */}
-      <section className={styles.metricsBar}>
+      <section className={`${styles.metricsBar} ${mobileSection !== "boq" ? styles.mobileHiddenSection : ""}`}>
         {/* Total Floor Area */}
         <div className={styles.metricCard}>
           <div className={styles.metricIcon}>
@@ -508,7 +571,7 @@ function ProjectRoomsContent({ params }: PageProps) {
 
       {/* Empty State */}
       {!loading && rooms.length === 0 && (
-        <div className={styles.emptyState}>
+        <div className={`${styles.emptyState} ${mobileSection !== "rooms" ? styles.mobileHiddenSection : ""}`}>
           <div className={styles.emptyIcon}>
             <MdLayers />
           </div>
@@ -530,7 +593,7 @@ function ProjectRoomsContent({ params }: PageProps) {
 
       {/* Rooms Grid */}
       {!loading && rooms.length > 0 && (
-        <section className={styles.roomsGrid}>
+        <section className={`${styles.roomsGrid} ${mobileSection !== "rooms" ? styles.mobileHiddenSection : ""}`}>
           {rooms.map((room) => {
             const takeoff = calculateRoomTakeoff(room);
             const isLaminate = (room.flooringType || "laminate") === "laminate";
@@ -659,10 +722,10 @@ function ProjectRoomsContent({ params }: PageProps) {
                   <button
                     type="button"
                     className={styles.deleteBtn}
-                    onClick={() => handleDeleteRoom(room.id, room.name)}
-                    aria-label="Delete Room"
+                    onClick={() => setRoomPendingDelete({ id: room.id, name: room.name })}
+                    aria-label="Odayı Sil"
                   >
-                    <MdDeleteOutline size={18} />
+                    <MdDeleteOutline size={20} />
                   </button>
                 </div>
               </article>
@@ -711,6 +774,7 @@ function ProjectRoomsContent({ params }: PageProps) {
                 <input
                   type="text"
                   required
+                  enterKeyHint="done"
                   value={newRoomName}
                   onChange={(e) => setNewRoomName(e.target.value)}
                   placeholder="Örn: Salon, Çocuk Odası"
@@ -748,6 +812,66 @@ function ProjectRoomsContent({ params }: PageProps) {
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* In-App Delete Room Confirmation Dialog */}
+      {roomPendingDelete && (
+        <div className={styles.modalBackdrop} onClick={() => !deletingRoom && setRoomPendingDelete(null)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Odayı Sil">
+            <div className={styles.modalHead}>
+              <h2 className={styles.modalTitle}>Odayı Sil</h2>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setRoomPendingDelete(null)}
+                disabled={deletingRoom}
+                aria-label="Kapat"
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
+            <p className={styles.confirmDesc}>
+              <strong>&ldquo;{roomPendingDelete.name}&rdquo;</strong> odasını ve tüm çizim verilerini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.
+            </p>
+            <div className={styles.confirmActions}>
+              <button
+                type="button"
+                className={styles.cancelDialogBtn}
+                onClick={() => setRoomPendingDelete(null)}
+                disabled={deletingRoom}
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                className={styles.confirmDeleteBtn}
+                onClick={handleConfirmDeleteRoom}
+                disabled={deletingRoom}
+              >
+                <MdDeleteOutline size={18} />
+                <span>{deletingRoom ? "Siliniyor..." : "Evet, Sil"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Floating Action Button for Quick Add Room */}
+      <button
+        type="button"
+        className={styles.mobileFab}
+        onClick={() => setIsModalOpen(true)}
+        aria-label="Yeni Oda Ekle"
+      >
+        <MdAdd size={22} />
+        <span>Yeni Oda</span>
+      </button>
+
+      {/* Inline Toast Feedback */}
+      {toastMessage && (
+        <div className={styles.toastBanner} role="status" aria-live="polite">
+          {toastMessage}
         </div>
       )}
     </div>

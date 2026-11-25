@@ -84,6 +84,8 @@ export default function LoginPage() {
             <input
               id="email"
               type="email"
+              autoComplete="email"
+              enterKeyHint="next"
               required
               placeholder="architect@cadance.com"
               value={email}
@@ -100,6 +102,8 @@ export default function LoginPage() {
             <input
               id="password"
               type="password"
+              autoComplete={isRegistering ? "new-password" : "current-password"}
+              enterKeyHint="done"
               required
               placeholder="••••••••"
               value={password}
