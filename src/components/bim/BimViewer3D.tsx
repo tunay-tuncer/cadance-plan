@@ -31,6 +31,7 @@ interface BimViewer3DProps {
   selectedElementType?: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null;
   selectedElementIds?: string[];
   onSelectElement?: (id: string | null, type: "wall" | "door" | "window" | "electrical" | "radiator" | "lighting" | "beam" | "chimney" | "acUnit" | null) => void;
+  isActive?: boolean;
 }
 
 // Global CAD mm to 3D Meter Scale (1 Unit = 1 Meter)
@@ -1206,6 +1207,7 @@ export default function BimViewer3D({
   selectedElementType,
   selectedElementIds,
   onSelectElement,
+  isActive = true,
 }: BimViewer3DProps) {
   const showWalls = layerSettings?.walls?.visible ?? true;
   const showDoors = layerSettings?.doors?.visible ?? true;
@@ -1236,6 +1238,7 @@ export default function BimViewer3D({
     <div style={{ width: "100%", height: "100%", background: "#0c0d12", position: "relative" }}>
       <Canvas
         shadows
+        frameloop={isActive ? "always" : "never"}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).tagName === "CANVAS") {
             onSelectElement?.(null, null);

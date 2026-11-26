@@ -80,6 +80,20 @@ function getOffsetAlongSegment(p: Point2D, a: Point2D, b: Point2D): number {
   return Math.round(t * len);
 }
 
+// Lightweight text width cache keyed by font + text to avoid slow per-frame ctx.measureText() calls
+const textMeasureCache = new Map<string, number>();
+function measureTextCached(ctx: CanvasRenderingContext2D, text: string): { width: number } {
+  const key = `${ctx.font}|${text}`;
+  const cached = textMeasureCache.get(key);
+  if (cached !== undefined) return { width: cached };
+  const w = ctx.measureText(text).width;
+  if (textMeasureCache.size > 500) {
+    textMeasureCache.clear();
+  }
+  textMeasureCache.set(key, w);
+  return { width: w };
+}
+
 export default function PlanCanvas2D({
   room,
   activePoint,
@@ -102,37 +116,45 @@ export default function PlanCanvas2D({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // ResizeObserver State to prevent any canvas stretching on resolution / window size change
+  // ResizeObserver State (triggers initial camera fit & redraw on size changes)
   const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const canvasRectRef = useRef<{ width: number; height: number; left: number; top: number; dpr: number }>({
+    width: 0,
+    height: 0,
+    left: 0,
+    top: 0,
+    dpr: 1,
+  });
 
-  // Direct Wall Selection Hover state for opening placement
-  const [hoveredWallId, setHoveredWallId] = useState<string | null>(null);
-  const [hoverOffset, setHoverOffset] = useState<number | null>(null);
-
-  // Marquee / Box Selection State (Dedicated Tool)
-  const [activeTool, setActiveTool] = useState<"pointer" | "boxSelect">("pointer");
-  const [selectionBox, setSelectionBox] = useState<{ start: Point2D; current: Point2D } | null>(null);
+  // High-frequency interactive canvas state stored in refs (zero React re-renders during pan/zoom/hover!)
+  const hoveredWallIdRef = useRef<string | null>(null);
+  const hoverOffsetRef = useRef<number | null>(null);
+  const selectionBoxRef = useRef<{ start: Point2D; current: Point2D } | null>(null);
+  const hoveredSnapPointRef = useRef<Point2D | null>(null);
   const tempDimHitboxesRef = useRef<TempDimHitbox[]>([]);
 
-  // Snap to wall endpoint cursor state
-  const [hoveredSnapPoint, setHoveredSnapPoint] = useState<Point2D | null>(null);
+  // Marquee / Box Selection Mode (UI button toggle only)
+  const [activeTool, setActiveTool] = useState<"pointer" | "boxSelect">("pointer");
 
-  // Viewport Transform (origin at center of canvas)
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState<number>(0.1); // 1 mm = 0.1 px (1m = 100px)
+  // Viewport Transform stored in refs so 60-120Hz pan/pinch/wheel bypass React reconciliation
+  const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const zoomRef = useRef<number>(0.1); // 1 mm = 0.1 px (1m = 100px)
 
-  // Always-fresh refs for camera animations & smart framing without re-triggering effects
-  const panRef = useRef(pan);
-  const zoomRef = useRef(zoom);
+  // Camera animation & single-frame RAF draw scheduler refs
   const cameraAnimRef = useRef<number | null>(null);
+  const rafDrawRef = useRef<number | null>(null);
+  const drawFrameRef = useRef<() => void>(() => {});
   const initializedRoomIdRef = useRef<string | null>(null);
   const prevWallCountRef = useRef<number>(room.walls.length);
   const prevIsClosedRef = useRef<boolean>(room.isClosed);
 
-  useEffect(() => {
-    panRef.current = pan;
-    zoomRef.current = zoom;
-  }, [pan, zoom]);
+  const scheduleDraw = useCallback(() => {
+    if (rafDrawRef.current !== null) return;
+    rafDrawRef.current = requestAnimationFrame(() => {
+      rafDrawRef.current = null;
+      drawFrameRef.current();
+    });
+  }, []);
 
   const cancelCameraAnimation = useCallback(() => {
     if (cameraAnimRef.current !== null) {
@@ -142,10 +164,16 @@ export default function PlanCanvas2D({
   }, []);
 
   useEffect(() => {
-    return () => cancelCameraAnimation();
+    return () => {
+      cancelCameraAnimation();
+      if (rafDrawRef.current !== null) {
+        cancelAnimationFrame(rafDrawRef.current);
+        rafDrawRef.current = null;
+      }
+    };
   }, [cancelCameraAnimation]);
 
-  // Smoothly animate pan & zoom via requestAnimationFrame (jumps in 1 frame when durationMs <= 0)
+  // Smoothly animate pan & zoom via requestAnimationFrame (zero React state churn!)
   const animateCameraTo = useCallback(
     (targetPan: { x: number; y: number }, targetZoom: number, durationMs = 240) => {
       cancelCameraAnimation();
@@ -154,9 +182,8 @@ export default function PlanCanvas2D({
         cameraAnimRef.current = requestAnimationFrame(() => {
           panRef.current = targetPan;
           zoomRef.current = targetZoom;
-          setPan(targetPan);
-          setZoom(targetZoom);
           cameraAnimRef.current = null;
+          scheduleDraw();
         });
         return;
       }
@@ -170,16 +197,12 @@ export default function PlanCanvas2D({
         // Cubic ease-out for natural CAD camera glide
         const ease = 1 - Math.pow(1 - t, 3);
 
-        const nextPan = {
+        panRef.current = {
           x: startPan.x + (targetPan.x - startPan.x) * ease,
           y: startPan.y + (targetPan.y - startPan.y) * ease,
         };
-        const nextZoom = startZoom + (targetZoom - startZoom) * ease;
-
-        panRef.current = nextPan;
-        zoomRef.current = nextZoom;
-        setPan(nextPan);
-        setZoom(nextZoom);
+        zoomRef.current = startZoom + (targetZoom - startZoom) * ease;
+        scheduleDraw();
 
         if (t < 1) {
           cameraAnimRef.current = requestAnimationFrame(step);
@@ -190,11 +213,11 @@ export default function PlanCanvas2D({
 
       cameraAnimRef.current = requestAnimationFrame(step);
     },
-    [cancelCameraAnimation]
+    [cancelCameraAnimation, scheduleDraw]
   );
 
   // Measure live HUD insets (top overlay + bottom SurveyorControlBar) so camera always frames in the visible canvas slot
-  const getVisibleInsets = useCallback((rect: DOMRect) => {
+  const getVisibleInsets = useCallback((rect: { width: number; height: number }) => {
     const isMobile = rect.width <= 768;
     const topInset = isMobile ? 64 : 76;
     const sideMargin = isMobile ? 28 : 80;
@@ -231,16 +254,40 @@ export default function PlanCanvas2D({
     value: string;
   } | null>(null);
 
-  // ResizeObserver to detect any container size / resolution changes immediately
+  // ResizeObserver: cache rect & update integer DPR backing store ONLY when layout actually changes
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const handleResize = () => {
       const rect = container.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setCanvasDimensions({ width: rect.width, height: rect.height });
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      canvasRectRef.current = {
+        width: rect.width,
+        height: rect.height,
+        left: rect.left,
+        top: rect.top,
+        dpr,
+      };
+
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const targetW = Math.round(rect.width * dpr);
+        const targetH = Math.round(rect.height * dpr);
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = targetW;
+          canvas.height = targetH;
+        }
       }
+
+      setCanvasDimensions((prev) =>
+        Math.abs(prev.width - rect.width) < 0.5 && Math.abs(prev.height - rect.height) < 0.5
+          ? prev
+          : { width: rect.width, height: rect.height }
+      );
+      scheduleDraw();
     };
 
     handleResize();
@@ -258,7 +305,7 @@ export default function PlanCanvas2D({
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("orientationchange", handleResize);
     };
-  }, []);
+  }, [scheduleDraw]);
 
   // Closing snap condition
   const startPoint = useMemo(() => {
@@ -269,25 +316,23 @@ export default function PlanCanvas2D({
   const canClose = !room.isClosed && room.walls.length >= 2;
   const isNearOrigin = canClose && closingDistance < 600;
 
-  // World to Screen coordinates helper
-  const worldToScreen = useCallback(
-    (wX: number, wY: number, cW: number, cH: number) => {
-      const sX = (wX + pan.x) * zoom + cW / 2;
-      const sY = cH / 2 - (wY + pan.y) * zoom; // Y is inverted in CAD standard
-      return { x: sX, y: sY };
-    },
-    [pan, zoom]
-  );
+  // World to Screen coordinates helper (reads latest panRef/zoomRef — zero re-allocations!)
+  const worldToScreen = useCallback((wX: number, wY: number, cW: number, cH: number) => {
+    const curPan = panRef.current;
+    const curZoom = zoomRef.current;
+    const sX = (wX + curPan.x) * curZoom + cW / 2;
+    const sY = cH / 2 - (wY + curPan.y) * curZoom; // Y is inverted in CAD standard
+    return { x: sX, y: sY };
+  }, []);
 
-  // Screen to World coordinates helper
-  const screenToWorld = useCallback(
-    (sX: number, sY: number, cW: number, cH: number) => {
-      const wX = (sX - cW / 2) / zoom - pan.x;
-      const wY = (cH / 2 - sY) / zoom - pan.y;
-      return { x: wX, y: wY };
-    },
-    [pan, zoom]
-  );
+  // Screen to World coordinates helper (reads latest panRef/zoomRef — zero re-allocations!)
+  const screenToWorld = useCallback((sX: number, sY: number, cW: number, cH: number) => {
+    const curPan = panRef.current;
+    const curZoom = zoomRef.current;
+    const wX = (sX - cW / 2) / curZoom - curPan.x;
+    const wY = (cH / 2 - sY) / curZoom - curPan.y;
+    return { x: wX, y: wY };
+  }, []);
 
   // Auto-fit room to the exact visible viewport slot (CSS pixels, live HUD insets)
   const computeFitCamera = useCallback(
@@ -351,12 +396,12 @@ export default function PlanCanvas2D({
   const handleStepZoom = useCallback(
     (factor: number) => {
       cancelCameraAnimation();
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        setZoom((prev) => Math.max(0.015, Math.min(prev * factor, 0.8)));
+      const rect = canvasRectRef.current;
+      if (rect.width <= 0 || rect.height <= 0) {
+        zoomRef.current = Math.max(0.015, Math.min(zoomRef.current * factor, 0.8));
+        scheduleDraw();
         return;
       }
-      const rect = canvas.getBoundingClientRect();
       const { topInset, bottomInset, sideMargin, rightMargin } = getVisibleInsets(rect);
       const anchorX = sideMargin + Math.max(100, rect.width - sideMargin - rightMargin) / 2;
       const anchorY = topInset + Math.max(100, rect.height - topInset - bottomInset) / 2;
@@ -374,7 +419,7 @@ export default function PlanCanvas2D({
 
       animateCameraTo(newPan, newZoom, 140);
     },
-    [cancelCameraAnimation, getVisibleInsets, animateCameraTo]
+    [cancelCameraAnimation, getVisibleInsets, animateCameraTo, scheduleDraw]
   );
 
   // 1. Initial fit ONCE per room load (wait until canvas has non-zero dimensions)
@@ -491,25 +536,37 @@ export default function PlanCanvas2D({
     }
   }, [room.id, room.walls, room.isClosed, activePoint, getVisibleInsets, computeFitCamera, animateCameraTo]);
 
-  // Main Render Loop
-  useEffect(() => {
+  // Main Render Function (invoked via single-frame RAF scheduler; zero React re-renders during pan/zoom/hover)
+  const drawFrame = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
-    // Handle high DPI displays
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+    // Read cached layout rect & integer DPR buffer dimensions (never forces layout reflow mid-gesture!)
+    let { width: cW, height: cH, dpr } = canvasRectRef.current;
+    if (cW <= 0 || cH <= 0) {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      dpr = window.devicePixelRatio || 1;
+      cW = rect.width;
+      cH = rect.height;
+      canvasRectRef.current = { width: cW, height: cH, left: rect.left, top: rect.top, dpr };
+      const targetW = Math.round(cW * dpr);
+      const targetH = Math.round(cH * dpr);
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
     }
 
-    ctx.save();
-    ctx.scale(dpr, dpr);
-    const cW = rect.width;
-    const cH = rect.height;
+    const zoom = zoomRef.current;
+    const hoveredWallId = hoveredWallIdRef.current;
+    const hoverOffset = hoverOffsetRef.current;
+    const hoveredSnapPoint = hoveredSnapPointRef.current;
+    const selectionBox = selectionBoxRef.current;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Clear background
     ctx.fillStyle = "#0d0d12";
@@ -711,7 +768,7 @@ export default function PlanCanvas2D({
           const offsetCm = Math.round(hoverOffset / 10);
           const offText = `${offsetCm} cm`;
           ctx.font = "bold 10px Montserrat, sans-serif";
-          const offMet = ctx.measureText(offText);
+          const offMet = measureTextCached(ctx, offText);
           const bW = offMet.width + 10;
           const bH = 17;
           ctx.fillStyle = "rgba(13, 13, 18, 0.92)";
@@ -752,7 +809,7 @@ export default function PlanCanvas2D({
 
           ctx.font = "bold 11px Montserrat, sans-serif";
           const dimStr = `${lenCm}`;
-          const metrics = ctx.measureText(dimStr);
+          const metrics = measureTextCached(ctx, dimStr);
           const padX = 6;
           const padY = 3;
           const badgeW = metrics.width + padX * 2;
@@ -1251,7 +1308,7 @@ export default function PlanCanvas2D({
             const mid1Y = (sOffStart.y + sOffOpStart.y) / 2;
             const text1 = `${Math.round(d1 / 10)} cm ✎`;
             ctx.font = "bold 11px Montserrat, sans-serif";
-            const m1 = ctx.measureText(text1);
+            const m1 = measureTextCached(ctx, text1);
             const b1W = m1.width + 12;
             const b1H = 22;
 
@@ -1297,7 +1354,7 @@ export default function PlanCanvas2D({
             const mid2Y = (sOffOpEnd.y + sOffEnd.y) / 2;
             const text2 = `${Math.round(d2 / 10)} cm ✎`;
             ctx.font = "bold 11px Montserrat, sans-serif";
-            const m2 = ctx.measureText(text2);
+            const m2 = measureTextCached(ctx, text2);
             const b2W = m2.width + 12;
             const b2H = 22;
 
@@ -1463,7 +1520,7 @@ export default function PlanCanvas2D({
             const mid1Y = (sOffStart.y + sOffEl.y) / 2;
             const text1 = `${Math.round(d1 / 10)} cm ✎`;
             ctx.font = "bold 11px Montserrat, sans-serif";
-            const m1 = ctx.measureText(text1);
+            const m1 = measureTextCached(ctx, text1);
             const b1W = m1.width + 12;
             const b1H = 22;
 
@@ -1508,7 +1565,7 @@ export default function PlanCanvas2D({
             const mid2Y = (sOffEl.y + sOffEnd.y) / 2;
             const text2 = `${Math.round(d2 / 10)} cm ✎`;
             ctx.font = "bold 11px Montserrat, sans-serif";
-            const m2 = ctx.measureText(text2);
+            const m2 = measureTextCached(ctx, text2);
             const b2W = m2.width + 12;
             const b2H = 22;
 
@@ -1646,7 +1703,7 @@ export default function PlanCanvas2D({
             const mid1Y = (sOffStart.y + sOffR1.y) / 2;
             const text1 = `${Math.round(d1 / 10)} cm ✎`;
             ctx.font = "bold 11px Montserrat, sans-serif";
-            const m1 = ctx.measureText(text1);
+            const m1 = measureTextCached(ctx, text1);
             const b1W = m1.width + 12;
             const b1H = 22;
 
@@ -1690,7 +1747,7 @@ export default function PlanCanvas2D({
             const mid2Y = (sOffR2.y + sOffEnd.y) / 2;
             const text2 = `${Math.round(d2 / 10)} cm ✎`;
             ctx.font = "bold 11px Montserrat, sans-serif";
-            const m2 = ctx.measureText(text2);
+            const m2 = measureTextCached(ctx, text2);
             const b2W = m2.width + 12;
             const b2H = 22;
 
@@ -1781,7 +1838,7 @@ export default function PlanCanvas2D({
             const midDimY = (sP.y + sProj.y) / 2;
             ctx.font = "bold 9px Montserrat, sans-serif";
             const badgeText = `${distCm} cm ✎`;
-            const bMetrics = ctx.measureText(badgeText);
+            const bMetrics = measureTextCached(ctx, badgeText);
             const bW = bMetrics.width + 12;
             const bH = 18;
             ctx.fillStyle = "rgba(13, 13, 18, 0.95)";
@@ -1890,7 +1947,7 @@ export default function PlanCanvas2D({
         const sCenter = worldToScreen(geo.center.x, geo.center.y, cW, cH);
         const labelText = `${beam.name || "Kiriş"} (${Math.round(beam.width / 10)}x${Math.round(beam.depth / 10)})`;
         ctx.font = "bold 9px Montserrat, sans-serif";
-        const lMetrics = ctx.measureText(labelText);
+        const lMetrics = measureTextCached(ctx, labelText);
         const lw = lMetrics.width + 10;
         const lh = 16;
         ctx.fillStyle = "rgba(18, 18, 24, 0.9)";
@@ -1957,7 +2014,7 @@ export default function PlanCanvas2D({
             const midDimY = (sStart.y + sProj.y) / 2;
             ctx.font = "bold 9px Montserrat, sans-serif";
             const badgeText = `${distCm} cm ✎`;
-            const bMetrics = ctx.measureText(badgeText);
+            const bMetrics = measureTextCached(ctx, badgeText);
             const bW = bMetrics.width + 12;
             const bH = 18;
             ctx.fillStyle = "rgba(13, 13, 18, 0.95)";
@@ -2051,7 +2108,7 @@ export default function PlanCanvas2D({
         // 4. Label Badge (e.g. BACA 40x40)
         const labelText = `${chim.name || "BACA"} (${Math.round(w / 10)}x${Math.round(d / 10)})`;
         ctx.font = "bold 9px Montserrat, sans-serif";
-        const lMetrics = ctx.measureText(labelText);
+        const lMetrics = measureTextCached(ctx, labelText);
         const lw = lMetrics.width + 10;
         const lh = 16;
         ctx.fillStyle = "rgba(18, 18, 24, 0.92)";
@@ -2109,7 +2166,7 @@ export default function PlanCanvas2D({
             const midDimY = (sCenter.y + sProj.y) / 2;
             ctx.font = "bold 9px Montserrat, sans-serif";
             const badgeText = `${distCm} cm ✎`;
-            const bMetrics = ctx.measureText(badgeText);
+            const bMetrics = measureTextCached(ctx, badgeText);
             const bW = bMetrics.width + 12;
             const bH = 18;
             ctx.fillStyle = "rgba(13, 13, 18, 0.95)";
@@ -2243,7 +2300,7 @@ export default function PlanCanvas2D({
               const mid1Y = (sOffStart.y + sOffAC1.y) / 2;
               const text1 = `${Math.round(d1 / 10)} cm ✎`;
               ctx.font = "bold 11px Montserrat, sans-serif";
-              const m1 = ctx.measureText(text1);
+              const m1 = measureTextCached(ctx, text1);
               const b1W = m1.width + 12;
               const b1H = 22;
 
@@ -2298,7 +2355,7 @@ export default function PlanCanvas2D({
       const midY = (sHead.y + sStart.y) / 2 - 14;
       const tagText = `${Math.round(closingDistance / 10)} cm`;
       ctx.font = "bold 10px Montserrat, sans-serif";
-      const tm = ctx.measureText(tagText);
+      const tm = measureTextCached(ctx, tagText);
       const tagW = tm.width + 12;
       const tagH = 18;
 
@@ -2367,7 +2424,7 @@ export default function PlanCanvas2D({
             // Snap Tag
             ctx.font = "bold 10px Montserrat, sans-serif";
             const snapLabel = "Duvar Ucu (Snap)";
-            const sMetrics = ctx.measureText(snapLabel);
+            const sMetrics = measureTextCached(ctx, snapLabel);
             const tagW = sMetrics.width + 10;
             const tagH = 18;
             ctx.fillStyle = "rgba(18, 18, 23, 0.92)";
@@ -2449,30 +2506,26 @@ export default function PlanCanvas2D({
       ctx.strokeRect(bx, by, bw, bh);
       ctx.setLineDash([]);
     }
-
-    ctx.restore();
   }, [
     room,
     activePoint,
     startPoint,
     closingDistance,
     isNearOrigin,
-    pan,
-    zoom,
     selectedElementId,
     selectedElementType,
     selectedElementIds,
-    selectionBox,
-    activeTool,
-    hoveredSnapPoint,
     layerSettings,
     worldToScreen,
     screenToWorld,
-    canvasDimensions,
-    hoveredWallId,
-    hoverOffset,
     placingOpening,
   ]);
+
+  // Keep drawFrameRef updated and trigger a RAF redraw whenever React props/data change
+  useEffect(() => {
+    drawFrameRef.current = drawFrame;
+    scheduleDraw();
+  }, [drawFrame, canvasDimensions, scheduleDraw]);
 
   // Apply in-app dimension edit popover value
   const applyDimEdit = useCallback(
@@ -2591,22 +2644,25 @@ export default function PlanCanvas2D({
 
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    const rect = canvasRectRef.current;
+
     if (activePointersRef.current.size === 2) {
       // Enter 2-finger pinch-to-zoom mode
       isDraggingRef.current = false;
       didPinchRef.current = true;
-      setSelectionBox(null);
+      if (selectionBoxRef.current) {
+        selectionBoxRef.current = null;
+        scheduleDraw();
+      }
 
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
       const pts = Array.from(activePointersRef.current.values());
       const dist = Math.max(10, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
       const midScreenX = (pts[0].x + pts[1].x) / 2 - rect.left;
       const midScreenY = (pts[0].y + pts[1].y) / 2 - rect.top;
       const midWorld = screenToWorld(midScreenX, midScreenY, rect.width, rect.height);
 
-      pinchStartRef.current = { dist, zoom, midWorld };
+      pinchStartRef.current = { dist, zoom: zoomRef.current, midWorld };
       return;
     }
 
@@ -2614,34 +2670,28 @@ export default function PlanCanvas2D({
       didPinchRef.current = false;
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
-      panStartRef.current = { ...pan };
+      panStartRef.current = { ...panRef.current };
 
       // Provide immediate visual highlight under finger when tapping a wall to place an opening
-      if (placingOpening && canvasRef.current) {
-        const rect = canvasRef.current.getBoundingClientRect();
+      if (placingOpening && rect.width > 0 && rect.height > 0) {
         const downWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
         const match = findClosestWallForPlacement(downWorld, zoomRef.current, e.pointerType === "touch");
-        if (match) {
-          setHoveredWallId(match.wall.id);
-          setHoverOffset(match.offset);
-        } else {
-          setHoveredWallId(null);
-          setHoverOffset(null);
-        }
+        hoveredWallIdRef.current = match ? match.wall.id : null;
+        hoverOffsetRef.current = match ? match.offset : null;
+        scheduleDraw();
       }
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
+    const rect = canvasRectRef.current;
+    if (rect.width <= 0 || rect.height <= 0) return;
 
     if (activePointersRef.current.has(e.pointerId)) {
       activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
 
-    // Active 2-finger pinch-to-zoom & two-finger pan
+    // Active 2-finger pinch-to-zoom & two-finger pan (zero React re-renders!)
     if (activePointersRef.current.size === 2 && pinchStartRef.current) {
       const pts = Array.from(activePointersRef.current.values());
       const newDist = Math.max(10, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
@@ -2652,19 +2702,18 @@ export default function PlanCanvas2D({
       const midScreenY = (pts[0].y + pts[1].y) / 2 - rect.top;
       const { midWorld } = pinchStartRef.current;
 
-      const newPanX = (midScreenX - rect.width / 2) / newZoom - midWorld.x;
-      const newPanY = (rect.height / 2 - midScreenY) / newZoom - midWorld.y;
-
-      panRef.current = { x: newPanX, y: newPanY };
+      panRef.current = {
+        x: (midScreenX - rect.width / 2) / newZoom - midWorld.x,
+        y: (rect.height / 2 - midScreenY) / newZoom - midWorld.y,
+      };
       zoomRef.current = newZoom;
-      setZoom(newZoom);
-      setPan({ x: newPanX, y: newPanY });
+      scheduleDraw();
       return;
     }
 
     if (didPinchRef.current) return;
 
-    // Check vertex snap when moving pointer (hover detection on mouse/pen, skip while placing openings)
+    // Check vertex snap when moving pointer (hover detection on mouse/pen, only redraw when changed)
     if (!isDraggingRef.current && !placingOpening && e.pointerType !== "touch") {
       const curX = e.clientX - rect.left;
       const curY = e.clientY - rect.top;
@@ -2681,18 +2730,25 @@ export default function PlanCanvas2D({
           }
         }
       }
-      setHoveredSnapPoint(foundSnap);
+      const prevSnap = hoveredSnapPointRef.current;
+      const snapChanged =
+        (prevSnap === null) !== (foundSnap === null) ||
+        (prevSnap !== null && foundSnap !== null && (prevSnap.x !== foundSnap.x || prevSnap.y !== foundSnap.y));
+      if (snapChanged) {
+        hoveredSnapPointRef.current = foundSnap;
+        scheduleDraw();
+      }
     }
 
     if (placingOpening && !isDraggingRef.current && e.pointerType !== "touch") {
       const curWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
       const match = findClosestWallForPlacement(curWorld, zoomRef.current, false);
-      if (match) {
-        setHoveredWallId(match.wall.id);
-        setHoverOffset(match.offset);
-      } else {
-        setHoveredWallId(null);
-        setHoverOffset(null);
+      const nextWallId = match ? match.wall.id : null;
+      const nextOffset = match ? match.offset : null;
+      if (hoveredWallIdRef.current !== nextWallId || hoverOffsetRef.current !== nextOffset) {
+        hoveredWallIdRef.current = nextWallId;
+        hoverOffsetRef.current = nextOffset;
+        scheduleDraw();
       }
     }
 
@@ -2708,13 +2764,16 @@ export default function PlanCanvas2D({
       // Box selection tool: dragging draws marquee box
       const startWorld = screenToWorld(dragStartRef.current.x - rect.left, dragStartRef.current.y - rect.top, rect.width, rect.height);
       const curWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-      setSelectionBox({ start: startWorld, current: curWorld });
+      selectionBoxRef.current = { start: startWorld, current: curWorld };
+      scheduleDraw();
     } else {
-      // Default tool: dragging pans the canvas view smoothly
-      setPan({
-        x: panStartRef.current.x + dx / zoom,
-        y: panStartRef.current.y - dy / zoom,
-      });
+      // Default tool: dragging pans the canvas view smoothly via RAF (zero React re-renders!)
+      const curZoom = zoomRef.current;
+      panRef.current = {
+        x: panStartRef.current.x + dx / curZoom,
+        y: panStartRef.current.y - dy / curZoom,
+      };
+      scheduleDraw();
     }
   };
 
@@ -2731,7 +2790,10 @@ export default function PlanCanvas2D({
     if (activePointersRef.current.size === 0) {
       isDraggingRef.current = false;
       didPinchRef.current = false;
-      setSelectionBox(null);
+      if (selectionBoxRef.current) {
+        selectionBoxRef.current = null;
+        scheduleDraw();
+      }
     }
   };
 
@@ -2758,9 +2820,8 @@ export default function PlanCanvas2D({
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
+    const rect = canvasRectRef.current;
+    if (rect.width <= 0 || rect.height <= 0) return;
     const clickScreenX = e.clientX - rect.left;
     const clickScreenY = e.clientY - rect.top;
     const totalDist = Math.hypot(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y);
@@ -2774,21 +2835,24 @@ export default function PlanCanvas2D({
         const match = findClosestWallForPlacement(clickWorld, zoomRef.current, e.pointerType === "touch");
         if (match) {
           onSelectWallForOpening(match.wall.id, match.offset, placingOpening);
-          setHoveredWallId(null);
-          setHoverOffset(null);
-          setHoveredSnapPoint(null);
+          hoveredWallIdRef.current = null;
+          hoverOffsetRef.current = null;
+          hoveredSnapPointRef.current = null;
+          scheduleDraw();
         }
       }
       return;
     }
 
     // 1. Marquee Box Selection Resolution
-    if (selectionBox) {
-      const boxMinX = Math.min(selectionBox.start.x, selectionBox.current.x);
-      const boxMaxX = Math.max(selectionBox.start.x, selectionBox.current.x);
-      const boxMinY = Math.min(selectionBox.start.y, selectionBox.current.y);
-      const boxMaxY = Math.max(selectionBox.start.y, selectionBox.current.y);
-      setSelectionBox(null);
+    const activeSelectionBox = selectionBoxRef.current;
+    if (activeSelectionBox) {
+      const boxMinX = Math.min(activeSelectionBox.start.x, activeSelectionBox.current.x);
+      const boxMaxX = Math.max(activeSelectionBox.start.x, activeSelectionBox.current.x);
+      const boxMinY = Math.min(activeSelectionBox.start.y, activeSelectionBox.current.y);
+      const boxMaxY = Math.max(activeSelectionBox.start.y, activeSelectionBox.current.y);
+      selectionBoxRef.current = null;
+      scheduleDraw();
 
       const hitIds: string[] = [];
       // Walls
@@ -2898,7 +2962,7 @@ export default function PlanCanvas2D({
 
     if (totalDist < (e.pointerType === "touch" ? 14 : 8)) {
       // 3a. Snap Surveyor Cursor to Wall Endpoint (supports both mouse hover & direct touch tap while drafting)
-      let tapSnapPoint = hoveredSnapPoint;
+      let tapSnapPoint = hoveredSnapPointRef.current;
       if (!tapSnapPoint && e.pointerType === "touch" && !room.isClosed && onSetActivePoint) {
         let minSnapDist = Infinity;
         for (const wall of room.walls) {
@@ -3128,17 +3192,17 @@ export default function PlanCanvas2D({
     }
   };
 
-  // Mouse wheel zoom anchored to pointer position
+  // Mouse wheel zoom anchored to pointer position (zero React re-renders!)
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     cancelCameraAnimation();
-    const canvas = canvasRef.current;
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-    if (!canvas) {
-      setZoom((prev) => Math.max(0.015, Math.min(prev * zoomFactor, 0.8)));
+    const rect = canvasRectRef.current;
+    if (rect.width <= 0 || rect.height <= 0) {
+      zoomRef.current = Math.max(0.015, Math.min(zoomRef.current * zoomFactor, 0.8));
+      scheduleDraw();
       return;
     }
-    const rect = canvas.getBoundingClientRect();
     const cursorX = e.clientX - rect.left;
     const cursorY = e.clientY - rect.top;
     const curZoom = zoomRef.current;
@@ -3147,15 +3211,12 @@ export default function PlanCanvas2D({
 
     const worldX = (cursorX - rect.width / 2) / curZoom - curPan.x;
     const worldY = (rect.height / 2 - cursorY) / curZoom - curPan.y;
-    const newPan = {
+    panRef.current = {
       x: (cursorX - rect.width / 2) / newZoom - worldX,
       y: (rect.height / 2 - cursorY) / newZoom - worldY,
     };
-
-    panRef.current = newPan;
     zoomRef.current = newZoom;
-    setZoom(newZoom);
-    setPan(newPan);
+    scheduleDraw();
   };
 
   return (
@@ -3255,8 +3316,9 @@ export default function PlanCanvas2D({
                   const firstWall = room.walls[0];
                   const midOff = Math.round(getDistance(firstWall.start, firstWall.end) / 2);
                   onSelectWallForOpening(firstWall.id, midOff, placingOpening);
-                  setHoveredWallId(null);
-                  setHoverOffset(null);
+                  hoveredWallIdRef.current = null;
+                  hoverOffsetRef.current = null;
+                  scheduleDraw();
                 }}
               >
                 Listeden Seç

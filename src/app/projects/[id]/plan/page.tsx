@@ -1380,6 +1380,7 @@ function PlanStudioContent({ params }: PageProps) {
             selectedElementType={selectedElementType}
             selectedElementIds={selectedElementIds}
             onSelectElement={handleSelectElement}
+            isActive={workspaceMode === "3d"}
           />
         </div>
 
